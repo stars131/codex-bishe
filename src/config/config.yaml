@@ -1,0 +1,59 @@
+# Project configuration
+project:
+  name: "network-attack-detection"
+  version: "0.1.0"
+
+# Data paths
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  log_dir: "data/logs"
+
+# Model configuration
+model:
+  type: "fusion_net"  # Options: cnn, lstm, transformer, fusion_net
+  input_dim: null     # Will be set based on data
+  hidden_dim: 256
+  num_layers: 3
+  num_classes: null   # Will be set based on data
+  dropout: 0.3
+
+# Training configuration
+training:
+  batch_size: 64
+  epochs: 100
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  early_stopping_patience: 10
+  scheduler:
+    type: "cosine"
+    warmup_epochs: 5
+
+# Data fusion configuration
+fusion:
+  sources:
+    - traffic    # Network traffic data
+    - logs       # System/application logs
+  method: "attention"  # Options: concat, attention, gated
+
+# Evaluation
+evaluation:
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1_score
+    - auc_roc
+  test_split: 0.2
+  val_split: 0.1
+
+# Output paths
+output:
+  checkpoint_dir: "outputs/checkpoints"
+  results_dir: "outputs/results"
+  figures_dir: "outputs/figures"
+
+# Logging
+logging:
+  level: "INFO"
+  tensorboard: true

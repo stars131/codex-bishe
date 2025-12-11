@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # Main development environment
+  attack-detection:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: network-attack-detection:latest
+    container_name: attack-detection-dev
+
+    # GPU support - uncomment if using NVIDIA GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+    volumes:
+      # Mount source code for development
+      - ./src:/app/src
+      - ./notebooks:/app/notebooks
+      - ./experiments:/app/experiments
+
+      # Mount data directory (put your datasets here)
+      - ./data:/app/data
+
+      # Mount outputs for persistence
+      - ./outputs:/app/outputs
+
+      # Mount config
+      - ./src/config:/app/src/config
+
+    ports:
+      # Jupyter Notebook
+      - "8888:8888"
+      # TensorBoard
+      - "6006:6006"
+
+    environment:
+      - PYTHONPATH=/app
+      - CUDA_VISIBLE_DEVICES=0
+
+    stdin_open: true
+    tty: true
+
+    # Default command - can be overridden
+    command: bash
+
+  # Jupyter Lab service
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: network-attack-detection:latest
+    container_name: attack-detection-jupyter
+
+    volumes:
+      - ./src:/app/src
+      - ./notebooks:/app/notebooks
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+
+    ports:
+      - "8889:8888"
+
+    environment:
+      - PYTHONPATH=/app
+
+    command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=''
+
+  # TensorBoard service
+  tensorboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: network-attack-detection:latest
+    container_name: attack-detection-tensorboard
+
+    volumes:
+      - ./outputs:/app/outputs
+
+    ports:
+      - "6007:6006"
+
+    command: tensorboard --logdir=/app/outputs/results --host=0.0.0.0 --port=6006
