@@ -1,15 +1,50 @@
 version: '3.8'
 
+# 网络攻击检测系统 - Docker Compose 配置
+# 一键部署说明:
+#   1. docker-compose up -d dashboard   # 启动可视化仪表板
+#   2. docker-compose up -d             # 启动所有服务
+#   3. docker-compose run train         # 运行训练
+
 services:
-  # Main development environment
-  attack-detection:
+  # =============================================
+  # 可视化仪表板 - Streamlit Dashboard
+  # 访问地址: http://localhost:8501
+  # =============================================
+  dashboard:
     build:
       context: .
       dockerfile: Dockerfile
     image: network-attack-detection:latest
-    container_name: attack-detection-dev
+    container_name: attack-detection-dashboard
 
-    # GPU support - uncomment if using NVIDIA GPU
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+
+    ports:
+      - "8501:8501"
+
+    environment:
+      - PYTHONPATH=/app
+
+    command: streamlit run src/visualization/app.py --server.address=0.0.0.0 --server.port=8501
+
+    restart: unless-stopped
+
+  # =============================================
+  # 训练服务 - 运行完整训练流程
+  # 使用: docker-compose run train
+  # =============================================
+  train:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: network-attack-detection:latest
+    container_name: attack-detection-train
+
+    # GPU支持 - 如果有NVIDIA GPU请取消注释
     # deploy:
     #   resources:
     #     reservations:
@@ -19,37 +54,49 @@ services:
     #           capabilities: [gpu]
 
     volumes:
-      # Mount source code for development
       - ./src:/app/src
-      - ./notebooks:/app/notebooks
-      - ./experiments:/app/experiments
-
-      # Mount data directory (put your datasets here)
       - ./data:/app/data
-
-      # Mount outputs for persistence
       - ./outputs:/app/outputs
-
-      # Mount config
-      - ./src/config:/app/src/config
-
-    ports:
-      # Jupyter Notebook
-      - "8888:8888"
-      # TensorBoard
-      - "6006:6006"
+      - ./main.py:/app/main.py
 
     environment:
       - PYTHONPATH=/app
       - CUDA_VISIBLE_DEVICES=0
 
-    stdin_open: true
-    tty: true
+    command: python main.py --data_dir /app/data/raw --mode full
 
-    # Default command - can be overridden
-    command: bash
+    profiles:
+      - training
 
-  # Jupyter Lab service
+  # =============================================
+  # 数据预处理服务
+  # 使用: docker-compose run preprocess
+  # =============================================
+  preprocess:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: network-attack-detection:latest
+    container_name: attack-detection-preprocess
+
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./main.py:/app/main.py
+
+    environment:
+      - PYTHONPATH=/app
+
+    command: python main.py --data_dir /app/data/raw --mode preprocess
+
+    profiles:
+      - preprocess
+
+  # =============================================
+  # Jupyter Lab服务
+  # 访问地址: http://localhost:8888
+  # =============================================
   jupyter:
     build:
       context: .
@@ -64,14 +111,20 @@ services:
       - ./outputs:/app/outputs
 
     ports:
-      - "8889:8888"
+      - "8888:8888"
 
     environment:
       - PYTHONPATH=/app
 
     command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=''
 
-  # TensorBoard service
+    profiles:
+      - dev
+
+  # =============================================
+  # TensorBoard服务
+  # 访问地址: http://localhost:6006
+  # =============================================
   tensorboard:
     build:
       context: .
@@ -83,6 +136,43 @@ services:
       - ./outputs:/app/outputs
 
     ports:
+      - "6006:6006"
+
+    command: tensorboard --logdir=/app/outputs/logs --host=0.0.0.0 --port=6006
+
+    profiles:
+      - monitoring
+
+  # =============================================
+  # 开发环境 - 交互式终端
+  # 使用: docker-compose run dev
+  # =============================================
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: network-attack-detection:latest
+    container_name: attack-detection-dev
+
+    volumes:
+      - ./:/app
+
+    ports:
+      - "8889:8888"
       - "6007:6006"
 
-    command: tensorboard --logdir=/app/outputs/results --host=0.0.0.0 --port=6006
+    environment:
+      - PYTHONPATH=/app
+
+    stdin_open: true
+    tty: true
+
+    command: bash
+
+    profiles:
+      - dev
+
+# 网络配置
+networks:
+  default:
+    name: attack-detection-network

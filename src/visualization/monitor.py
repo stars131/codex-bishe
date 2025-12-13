@@ -19,6 +19,161 @@ except ImportError:
     HAS_TORCH = False
 
 
+class GPUMonitor:
+    """
+    GPU资源监控器
+
+    监控GPU内存使用、利用率等信息。
+    """
+
+    def __init__(self):
+        self.has_gpu = HAS_TORCH and torch.cuda.is_available()
+        self.history = {
+            'memory_allocated': [],
+            'memory_reserved': [],
+            'memory_percent': [],
+            'gpu_utilization': []
+        }
+
+    def get_memory_info(self) -> Dict:
+        """获取当前GPU内存信息"""
+        if not self.has_gpu:
+            return {'allocated': 0, 'reserved': 0, 'total': 0, 'percent': 0}
+
+        allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+        reserved = torch.cuda.memory_reserved() / 1024**3  # GB
+        total = torch.cuda.get_device_properties(0).total_memory / 1024**3  # GB
+        percent = (allocated / total) * 100 if total > 0 else 0
+
+        return {
+            'allocated': allocated,
+            'reserved': reserved,
+            'total': total,
+            'percent': percent
+        }
+
+    def log_memory(self):
+        """记录当前GPU内存使用"""
+        info = self.get_memory_info()
+        self.history['memory_allocated'].append(info['allocated'])
+        self.history['memory_reserved'].append(info['reserved'])
+        self.history['memory_percent'].append(info['percent'])
+
+    def get_memory_summary(self) -> Dict:
+        """获取内存使用摘要"""
+        if not self.history['memory_allocated']:
+            return {}
+
+        return {
+            'peak_allocated_gb': max(self.history['memory_allocated']),
+            'avg_allocated_gb': np.mean(self.history['memory_allocated']),
+            'peak_percent': max(self.history['memory_percent']),
+            'avg_percent': np.mean(self.history['memory_percent'])
+        }
+
+    def clear_cache(self):
+        """清理GPU缓存"""
+        if self.has_gpu:
+            torch.cuda.empty_cache()
+
+    @staticmethod
+    def get_device_info() -> Dict:
+        """获取GPU设备信息"""
+        if not HAS_TORCH or not torch.cuda.is_available():
+            return {'available': False}
+
+        return {
+            'available': True,
+            'device_count': torch.cuda.device_count(),
+            'device_name': torch.cuda.get_device_name(0),
+            'cuda_version': torch.version.cuda,
+            'total_memory_gb': torch.cuda.get_device_properties(0).total_memory / 1024**3
+        }
+
+
+class PerformanceTracker:
+    """
+    性能追踪器
+
+    追踪训练过程中的时间、吞吐量等性能指标。
+    """
+
+    def __init__(self):
+        self.epoch_times = []
+        self.batch_times = []
+        self.throughputs = []
+        self.epoch_start = None
+        self.batch_start = None
+
+    def start_epoch(self):
+        """开始计时一个epoch"""
+        self.epoch_start = time.time()
+        self.batch_times = []
+
+    def end_epoch(self, num_samples: int = None) -> float:
+        """
+        结束一个epoch计时
+
+        Args:
+            num_samples: 本epoch处理的样本数
+
+        Returns:
+            epoch耗时（秒）
+        """
+        if self.epoch_start is None:
+            return 0
+
+        elapsed = time.time() - self.epoch_start
+        self.epoch_times.append(elapsed)
+
+        if num_samples:
+            throughput = num_samples / elapsed
+            self.throughputs.append(throughput)
+
+        return elapsed
+
+    def start_batch(self):
+        """开始计时一个batch"""
+        self.batch_start = time.time()
+
+    def end_batch(self) -> float:
+        """结束一个batch计时"""
+        if self.batch_start is None:
+            return 0
+
+        elapsed = time.time() - self.batch_start
+        self.batch_times.append(elapsed)
+        return elapsed
+
+    def get_summary(self) -> Dict:
+        """获取性能摘要"""
+        summary = {}
+
+        if self.epoch_times:
+            summary['total_time'] = sum(self.epoch_times)
+            summary['avg_epoch_time'] = np.mean(self.epoch_times)
+            summary['min_epoch_time'] = min(self.epoch_times)
+            summary['max_epoch_time'] = max(self.epoch_times)
+
+        if self.throughputs:
+            summary['avg_throughput'] = np.mean(self.throughputs)
+            summary['peak_throughput'] = max(self.throughputs)
+
+        if self.batch_times:
+            summary['avg_batch_time'] = np.mean(self.batch_times)
+
+        return summary
+
+    def estimate_remaining_time(self, current_epoch: int, total_epochs: int) -> float:
+        """估计剩余训练时间"""
+        if not self.epoch_times:
+            return 0
+
+        avg_time = np.mean(self.epoch_times)
+        remaining_epochs = total_epochs - current_epoch
+        return avg_time * remaining_epochs
+
+
 class TrainingHistory:
     """
     训练历史记录器

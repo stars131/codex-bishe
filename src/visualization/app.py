@@ -567,9 +567,70 @@ def main():
             st.divider()
 
             # 各类别注意力分析
-            if 'attention_by_class' in results:
-                st.subheader("各类别注意力权重")
-                # TODO: 添加按类别的注意力分析
+            st.subheader("各类别注意力权重分析")
+
+            if 'y_true' in results and results.get('attention_weights') is not None:
+                y_true = results['y_true']
+                class_names_attn = results.get('class_names', [f'Class {i}' for i in range(len(np.unique(y_true)))])
+
+                # 计算每个类别的平均注意力权重
+                class_attention = {}
+                for cls_idx, cls_name in enumerate(class_names_attn):
+                    mask = y_true == cls_idx
+                    if np.sum(mask) > 0:
+                        class_attention[cls_name] = {
+                            'mean': np.mean(attention_weights[mask], axis=0),
+                            'std': np.std(attention_weights[mask], axis=0),
+                            'count': np.sum(mask)
+                        }
+
+                # 绘制各类别注意力权重对比图
+                fig_class_attn = go.Figure()
+
+                x_labels = list(class_attention.keys())
+                for i, source in enumerate(source_names):
+                    means = [class_attention[cls]['mean'][i] for cls in x_labels]
+                    stds = [class_attention[cls]['std'][i] for cls in x_labels]
+
+                    fig_class_attn.add_trace(go.Bar(
+                        name=source,
+                        x=x_labels,
+                        y=means,
+                        error_y=dict(type='data', array=stds, visible=True),
+                        marker_color=['#3498db', '#e74c3c'][i]
+                    ))
+
+                fig_class_attn.update_layout(
+                    title="各类别对不同数据源的注意力权重",
+                    xaxis_title="攻击类型",
+                    yaxis_title="平均注意力权重",
+                    barmode='group',
+                    height=500
+                )
+                st.plotly_chart(fig_class_attn, use_container_width=True)
+
+                # 显示详细表格
+                st.subheader("详细数据")
+                attn_df = pd.DataFrame([
+                    {
+                        '类别': cls,
+                        f'{source_names[0]}权重': f"{class_attention[cls]['mean'][0]:.4f} ± {class_attention[cls]['std'][0]:.4f}",
+                        f'{source_names[1]}权重': f"{class_attention[cls]['mean'][1]:.4f} ± {class_attention[cls]['std'][1]:.4f}",
+                        '样本数': class_attention[cls]['count']
+                    }
+                    for cls in class_attention.keys()
+                ])
+                st.dataframe(attn_df, hide_index=True, use_container_width=True)
+
+                # 注意力分析结论
+                st.markdown("""
+                **注意力权重分析结论:**
+                - 不同攻击类型对数据源的依赖程度不同
+                - 权重较高的数据源对该类型攻击的检测贡献更大
+                - 这种差异性验证了多源数据融合的有效性
+                """)
+            else:
+                st.info("需要完整的预测结果才能进行按类别的注意力分析")
 
         else:
             st.info("暂无注意力权重数据")
