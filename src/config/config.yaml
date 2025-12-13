@@ -1,42 +1,133 @@
-# Project configuration
+# ============================================
+# 基于多源数据融合的网络攻击检测 - 配置文件
+# ============================================
+
+# 项目信息
 project:
   name: "network-attack-detection"
   version: "0.1.0"
+  description: "基于多源数据融合的网络攻击检测系统"
 
-# Data paths
+# ============================================
+# 数据配置
+# ============================================
 data:
-  raw_dir: "data/raw"
+  # 数据路径
+  raw_dir: "/mnt/hgfs/linux-desktop共享文件夹/数据/CIC-IDS-2017"
   processed_dir: "data/processed"
   log_dir: "data/logs"
 
-# Model configuration
+  # 预处理选项
+  preprocessing:
+    binary_classification: false  # true: 二分类, false: 多分类
+    feature_selection: "correlation"  # all, variance, correlation
+    normalize: true
+
+  # 数据平衡
+  balance:
+    enabled: false
+    method: "smote"  # smote, adasyn, undersample, smote_tomek
+
+  # 数据划分
+  split:
+    test_size: 0.2
+    val_size: 0.1
+    stratify: true
+    random_state: 42
+
+  # 多源数据分割
+  multi_source:
+    source1_groups: ["traffic", "temporal"]  # 第一数据源：流量+时序特征
+    source2_groups: ["flags", "header", "bulk"]  # 第二数据源：标志位+头部+批量特征
+
+  # DataLoader配置
+  loader:
+    batch_size: 64
+    num_workers: 4
+    pin_memory: true
+    use_weighted_sampler: false
+    augment_train: false
+
+# ============================================
+# 模型配置
+# ============================================
 model:
-  type: "fusion_net"  # Options: cnn, lstm, transformer, fusion_net
-  input_dim: null     # Will be set based on data
-  hidden_dim: 256
-  num_layers: 3
-  num_classes: null   # Will be set based on data
-  dropout: 0.3
+  # 模型类型
+  type: "fusion_net"  # Options: single_source, fusion_net, fusion_net_gated
 
-# Training configuration
+  # 网络结构
+  architecture:
+    hidden_dim: 256
+    num_layers: 3
+    dropout: 0.3
+    activation: "relu"  # relu, gelu, leaky_relu
+
+  # 融合配置
+  fusion:
+    method: "attention"  # concat, attention, gated
+    attention_heads: 4  # 多头注意力头数（如果使用）
+
+  # 输入/输出维度（自动根据数据设置）
+  input_dim: null
+  source1_dim: null
+  source2_dim: null
+  num_classes: null
+
+# ============================================
+# 训练配置
+# ============================================
 training:
-  batch_size: 64
+  # 基本参数
   epochs: 100
-  learning_rate: 0.001
-  weight_decay: 0.0001
-  early_stopping_patience: 10
+  batch_size: 64
+
+  # 优化器
+  optimizer:
+    type: "adamw"  # adam, adamw, sgd
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    momentum: 0.9  # SGD only
+    betas: [0.9, 0.999]  # Adam/AdamW only
+
+  # 学习率调度
   scheduler:
-    type: "cosine"
+    type: "cosine"  # step, cosine, reduce_on_plateau, none
     warmup_epochs: 5
+    step_size: 30  # StepLR
+    gamma: 0.1  # StepLR, ReduceLROnPlateau
+    min_lr: 0.00001
 
-# Data fusion configuration
-fusion:
-  sources:
-    - traffic    # Network traffic data
-    - logs       # System/application logs
-  method: "attention"  # Options: concat, attention, gated
+  # 早停
+  early_stopping:
+    enabled: true
+    patience: 15
+    min_delta: 0.001
+    monitor: "val_loss"  # val_loss, val_acc, val_f1
 
-# Evaluation
+  # 损失函数
+  loss:
+    type: "cross_entropy"  # cross_entropy, focal_loss
+    class_weights: null  # auto, null, or list
+    focal_gamma: 2.0  # Focal Loss only
+    label_smoothing: 0.0
+
+  # 梯度裁剪
+  gradient_clip:
+    enabled: true
+    max_norm: 1.0
+
+  # 混合精度训练
+  mixed_precision: false
+
+  # 检查点
+  checkpoint:
+    save_best: true
+    save_last: true
+    save_every: 10  # 每N个epoch保存一次
+
+# ============================================
+# 评估配置
+# ============================================
 evaluation:
   metrics:
     - accuracy
@@ -44,16 +135,69 @@ evaluation:
     - recall
     - f1_score
     - auc_roc
-  test_split: 0.2
-  val_split: 0.1
+    - confusion_matrix
 
-# Output paths
+  # 每N个epoch进行完整评估
+  eval_every: 1
+
+  # 是否计算每类指标
+  per_class_metrics: true
+
+# ============================================
+# 实验配置
+# ============================================
+experiment:
+  # 实验名称（自动生成或手动指定）
+  name: null
+
+  # 随机种子
+  seed: 42
+
+  # 是否使用确定性算法
+  deterministic: true
+
+  # 设备
+  device: "auto"  # auto, cuda, cpu, cuda:0
+
+  # 多GPU训练
+  multi_gpu: false
+
+# ============================================
+# 输出配置
+# ============================================
 output:
   checkpoint_dir: "outputs/checkpoints"
   results_dir: "outputs/results"
   figures_dir: "outputs/figures"
+  logs_dir: "outputs/logs"
 
-# Logging
+# ============================================
+# 日志配置
+# ============================================
 logging:
-  level: "INFO"
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   tensorboard: true
+  wandb: false  # Weights & Biases
+  log_every: 10  # 每N个batch记录一次
+
+# ============================================
+# 消融实验配置
+# ============================================
+ablation:
+  # 单源 vs 多源对比
+  compare_sources:
+    enabled: true
+    sources: ["source1_only", "source2_only", "fusion"]
+
+  # 融合方法对比
+  compare_fusion:
+    enabled: true
+    methods: ["concat", "attention", "gated"]
+
+  # 超参数搜索
+  hyperparam_search:
+    enabled: false
+    hidden_dims: [128, 256, 512]
+    num_layers: [2, 3, 4]
+    dropouts: [0.2, 0.3, 0.4]
+    learning_rates: [0.0001, 0.001, 0.01]
