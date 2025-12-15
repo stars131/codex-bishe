@@ -26,13 +26,19 @@ check_docker() {
         exit 1
     fi
 
-    if ! command -v docker-compose &> /dev/null; then
+    # 检查docker compose (新语法) 或 docker-compose (旧语法)
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
         echo -e "${RED}错误: Docker Compose未安装${NC}"
         echo "请先安装Docker Compose: https://docs.docker.com/compose/install/"
         exit 1
     fi
 
     echo -e "${GREEN}✓ Docker环境检测通过${NC}"
+    echo "  使用: $DOCKER_COMPOSE"
 }
 
 # 创建必要的目录
@@ -48,7 +54,7 @@ create_directories() {
 build_image() {
     echo ""
     echo "构建Docker镜像（首次运行需要几分钟）..."
-    docker-compose build dashboard
+    $DOCKER_COMPOSE build dashboard
     echo -e "${GREEN}✓ 镜像构建完成${NC}"
 }
 
@@ -56,7 +62,7 @@ build_image() {
 start_services() {
     echo ""
     echo "启动服务..."
-    docker-compose up -d dashboard
+    $DOCKER_COMPOSE up -d dashboard
     echo -e "${GREEN}✓ 服务启动完成${NC}"
 }
 
@@ -96,21 +102,25 @@ main() {
             show_usage
             ;;
         stop)
+            check_docker
             echo "停止所有服务..."
-            docker-compose down
+            $DOCKER_COMPOSE down
             echo -e "${GREEN}✓ 服务已停止${NC}"
             ;;
         restart)
+            check_docker
             echo "重启服务..."
-            docker-compose restart dashboard
+            $DOCKER_COMPOSE restart dashboard
             echo -e "${GREEN}✓ 服务已重启${NC}"
             ;;
         logs)
-            docker-compose logs -f dashboard
+            check_docker
+            $DOCKER_COMPOSE logs -f dashboard
             ;;
         train)
+            check_docker
             echo "运行训练流程..."
-            docker-compose run --rm train
+            $DOCKER_COMPOSE run --rm train
             ;;
         help)
             echo "使用方法: $0 [命令]"

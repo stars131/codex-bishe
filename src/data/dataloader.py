@@ -9,9 +9,17 @@ import pickle
 from typing import Tuple, Dict, List, Optional, Union
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder, MinMaxScaler
-from imblearn.over_sampling import SMOTE, ADASYN
-from imblearn.under_sampling import RandomUnderSampler
-from imblearn.combine import SMOTETomek
+
+# 可选导入 imbalanced-learn (兼容性处理)
+try:
+    from imblearn.over_sampling import SMOTE, ADASYN
+    from imblearn.under_sampling import RandomUnderSampler
+    from imblearn.combine import SMOTETomek
+    HAS_IMBLEARN = True
+except ImportError:
+    HAS_IMBLEARN = False
+    print("警告: imbalanced-learn 未安装或版本不兼容，数据平衡功能将不可用")
+
 import warnings
 warnings.filterwarnings('ignore')
 
