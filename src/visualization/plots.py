@@ -264,7 +264,8 @@ class DataVisualizer:
         """降维可视化（t-SNE/PCA）"""
         # 采样
         if len(features) > n_samples:
-            indices = np.random.choice(len(features), n_samples, replace=False)
+            rng = np.random.RandomState(42)
+            indices = rng.choice(len(features), n_samples, replace=False)
             features = features[indices]
             labels = labels[indices]
 

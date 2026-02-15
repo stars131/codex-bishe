@@ -329,10 +329,14 @@ class CNNEncoder(nn.Module):
         super().__init__()
 
         # 多尺度卷积
+        n_kernels = len(kernel_sizes)
+        channels_per_kernel = hidden_dim // n_kernels
+        self.actual_hidden = channels_per_kernel * n_kernels
+
         self.convs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv1d(1, hidden_dim // len(kernel_sizes), kernel_size=k, padding=k // 2),
-                nn.BatchNorm1d(hidden_dim // len(kernel_sizes)),
+                nn.Conv1d(1, channels_per_kernel, kernel_size=k, padding=k // 2),
+                nn.BatchNorm1d(channels_per_kernel),
                 nn.GELU()
             )
             for k in kernel_sizes
@@ -341,7 +345,7 @@ class CNNEncoder(nn.Module):
         self.pool = nn.AdaptiveMaxPool1d(1)
 
         self.fc = nn.Sequential(
-            nn.Linear(hidden_dim, output_dim),
+            nn.Linear(self.actual_hidden, output_dim),
             nn.LayerNorm(output_dim),
             nn.GELU(),
             nn.Dropout(dropout)

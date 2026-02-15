@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: 添加Windows快速测试、KDD Cup数据集支持及模块增强\n\n- 新增 quick_test.py Windows快速测试脚本（KDD Cup数据集）\n- 新增 src/data/kddcup_loader.py KDD Cup 99数据预处理器\n- 新增 src/config/config_windows.yaml Windows专用配置\n- 新增 start_dashboard.sh 仪表板启动脚本\n- 增强训练模块、融合模型、损失函数和可视化模块\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(tree:*)",
+      "Bash(dir /B /S \"D:\\\\毕设相关\\\\测试数据集\\\\huanjing\")",
+      "Bash(findstr:*)",
+      "Bash(python -m pytest:*)"
+    ]
+  }
+}

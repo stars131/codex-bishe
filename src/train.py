@@ -923,7 +923,7 @@ def main():
 
         # 测试
         logger.info("\nEvaluating on test set...")
-        test_loss, test_acc, test_metrics = trainer.validate()
+        test_loss, test_acc, test_metrics = trainer.evaluate(loaders['test'])
         logger.info(f"Test Loss: {test_loss:.4f}")
         logger.info(f"Test Accuracy: {test_acc:.4f}")
         logger.info(f"Test F1: {test_metrics['f1']:.4f}")

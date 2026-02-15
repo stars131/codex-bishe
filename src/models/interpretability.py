@@ -53,9 +53,15 @@ class AttentionAnalyzer:
         source1 = source1.to(self.device)
         source2 = source2.to(self.device)
 
-        _, attention = self.model(source1, source2)
+        output = self.model(source1, source2)
+        if isinstance(output, tuple) and len(output) >= 2:
+            _, attention = output[0], output[1]
+        else:
+            return {'fusion_attention': np.ones((source1.shape[0], 2)) * 0.5}
 
-        if isinstance(attention, dict):
+        if attention is None:
+            return {'fusion_attention': np.ones((source1.shape[0], 2)) * 0.5}
+        elif isinstance(attention, dict):
             return {k: v.cpu().numpy() for k, v in attention.items()}
         else:
             return {'fusion_attention': attention.cpu().numpy()}
@@ -83,7 +89,14 @@ class AttentionAnalyzer:
             source1 = source1.to(self.device)
             source2 = source2.to(self.device)
 
-            _, attention = self.model(source1, source2)
+            output = self.model(source1, source2)
+            if isinstance(output, tuple) and len(output) >= 2:
+                attention = output[1]
+            else:
+                attention = None
+
+            if attention is None:
+                attention = torch.ones(source1.shape[0], 2) * 0.5
 
             if isinstance(attention, dict):
                 attention = attention.get('fusion_attention', list(attention.values())[0])
@@ -268,8 +281,9 @@ class FeatureImportanceAnalyzer:
         s1_importance = np.zeros(all_s1.shape[1])
         for feat_idx in range(all_s1.shape[1]):
             feat_losses = []
-            for _ in range(n_repeats):
+            for repeat_idx in range(n_repeats):
                 s1_permuted = all_s1.clone()
+                torch.manual_seed(42 + feat_idx * n_repeats + repeat_idx)
                 perm_idx = torch.randperm(s1_permuted.shape[0])
                 s1_permuted[:, feat_idx] = s1_permuted[perm_idx, feat_idx]
 
@@ -282,8 +296,9 @@ class FeatureImportanceAnalyzer:
         s2_importance = np.zeros(all_s2.shape[1])
         for feat_idx in range(all_s2.shape[1]):
             feat_losses = []
-            for _ in range(n_repeats):
+            for repeat_idx in range(n_repeats):
                 s2_permuted = all_s2.clone()
+                torch.manual_seed(1000 + feat_idx * n_repeats + repeat_idx)
                 perm_idx = torch.randperm(s2_permuted.shape[0])
                 s2_permuted[:, feat_idx] = s2_permuted[perm_idx, feat_idx]
 
@@ -305,7 +320,8 @@ class FeatureImportanceAnalyzer:
 
         for s1, s2, y in dataloader:
             s1, s2, y = s1.to(self.device), s2.to(self.device), y.to(self.device)
-            outputs, _ = self.model(s1, s2)
+            result = self.model(s1, s2)
+            outputs = result[0] if isinstance(result, tuple) else result
             loss = criterion(outputs, y)
             total_loss += loss.item() * y.size(0)
             total_samples += y.size(0)
@@ -315,7 +331,8 @@ class FeatureImportanceAnalyzer:
     def _compute_loss_from_tensors(self, s1, s2, y, criterion) -> float:
         """从张量计算损失"""
         s1, s2, y = s1.to(self.device), s2.to(self.device), y.to(self.device)
-        outputs, _ = self.model(s1, s2)
+        result = self.model(s1, s2)
+        outputs = result[0] if isinstance(result, tuple) else result
         loss = criterion(outputs, y)
         return loss.item()
 

@@ -477,6 +477,18 @@ def create_loss_function(
     """
     损失函数工厂
 
+    支持的主损失函数类型:
+        - cross_entropy: 标准交叉熵损失
+        - focal: Focal Loss（处理类别不平衡）
+        - label_smoothing: 标签平滑交叉熵
+        - asymmetric: 非对称损失
+        - dice: Dice Loss
+        - class_balanced: 类别平衡损失（需提供 samples_per_class）
+        - combined: 组合损失
+
+    注意: ContrastiveLoss 和 CenterLoss 为辅助损失函数，
+    接收特征向量而非分类 logits，需单独实例化并与主损失函数配合使用。
+
     Args:
         loss_type: 损失函数类型
         num_classes: 类别数

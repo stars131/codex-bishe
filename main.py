@@ -394,49 +394,44 @@ def evaluate_model(config: dict, experiment_name: str, logger: logging.Logger):
     model = model.to(device)
     model.eval()
 
-    # 评估
-    all_preds = []
-    all_labels = []
-    all_probs = []
-    all_attention = []
+    # 使用综合评估器
+    from src.evaluation.evaluator import ComprehensiveEvaluator
 
-    with torch.no_grad():
-        for s1, s2, labels in test_loader:
-            s1, s2, labels = s1.to(device), s2.to(device), labels.to(device)
+    output_dir = os.path.join(project_root, 'outputs', experiment_name)
+    evaluator = ComprehensiveEvaluator(
+        model=model,
+        device=device,
+        class_names=data['class_names'],
+        output_dir=output_dir
+    )
 
-            outputs, attention = model(s1, s2)
-            probs = torch.softmax(outputs, dim=1)
-            _, preds = outputs.max(1)
-
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-            all_probs.extend(probs.cpu().numpy())
-            all_attention.extend(attention.cpu().numpy())
-
-    y_true = np.array(all_labels)
-    y_pred = np.array(all_preds)
-    y_proba = np.array(all_probs)
-    attention_weights = np.array(all_attention)
-
-    # 计算指标
-    metrics = compute_metrics(y_true, y_pred, y_proba, class_names=data['class_names'])
-    print_metrics(metrics, "测试集评估结果")
+    eval_results = evaluator.evaluate(test_loader)
+    evaluator.print_report(eval_results)
 
     # 分类报告
     logger.info("\n分类报告:")
-    logger.info("\n" + classification_report(y_true, y_pred, target_names=data['class_names'], zero_division=0))
+    logger.info("\n" + classification_report(
+        eval_results['predictions']['y_true'],
+        eval_results['predictions']['y_pred'],
+        target_names=data['class_names'],
+        zero_division=0
+    ))
 
-    # 保存结果
-    results_dir = os.path.join(project_root, 'outputs', experiment_name, 'results')
+    # 保存兼容格式的结果（供可视化模块使用）
+    results_dir = os.path.join(output_dir, 'results')
     os.makedirs(results_dir, exist_ok=True)
 
     results = {
-        'y_true': y_true,
-        'y_pred': y_pred,
-        'y_proba': y_proba,
-        'attention_weights': attention_weights,
-        'metrics': metrics,
-        'class_names': data['class_names']
+        'y_true': eval_results['predictions']['y_true'],
+        'y_pred': eval_results['predictions']['y_pred'],
+        'y_proba': eval_results['predictions']['y_proba'],
+        'attention_weights': eval_results['predictions'].get('attention_weights'),
+        'metrics': eval_results['basic_metrics'],
+        'class_names': data['class_names'],
+        'confidence_intervals': eval_results['confidence_intervals'],
+        'per_class_metrics': eval_results['per_class_metrics'],
+        'roc_data': eval_results['roc_data'],
+        'pr_data': eval_results['pr_data'],
     }
 
     results_path = os.path.join(results_dir, 'test_results.pkl')
@@ -445,7 +440,7 @@ def evaluate_model(config: dict, experiment_name: str, logger: logging.Logger):
     logger.info(f"评估结果已保存: {results_path}")
 
     logger.info("模型评估完成!")
-    return metrics
+    return eval_results['basic_metrics']
 
 
 def run_ablation(config: dict, logger: logging.Logger):

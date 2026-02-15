@@ -376,6 +376,13 @@ class ExperimentReport:
         """
         print("生成HTML报告...")
 
+        def _fmt(val, fmt='.4f'):
+            """安全格式化数值"""
+            try:
+                return f"{float(val):{fmt}}"
+            except (ValueError, TypeError):
+                return str(val) if val is not None else 'N/A'
+
         # 计算从报告目录到figures目录的相对路径
         figures_rel_path = os.path.relpath(self.figures_dir, self.output_dir)
 
@@ -535,11 +542,11 @@ class ExperimentReport:
                 <div class="label">训练轮数</div>
             </div>
             <div class="metric-card">
-                <div class="value">{stats.get('best_val_loss', 'N/A'):.4f}</div>
+                <div class="value">{_fmt(stats.get('best_val_loss'))}</div>
                 <div class="label">最佳验证损失</div>
             </div>
             <div class="metric-card">
-                <div class="value">{stats.get('best_val_acc', 'N/A'):.4f}</div>
+                <div class="value">{_fmt(stats.get('best_val_acc'))}</div>
                 <div class="label">最佳验证准确率</div>
             </div>
         </div>
@@ -559,19 +566,19 @@ class ExperimentReport:
         <h2>🎯 模型评估</h2>
         <div class="metrics-grid">
             <div class="metric-card">
-                <div class="value">{metrics.get('accuracy', 0):.4f}</div>
+                <div class="value">{_fmt(metrics.get('accuracy', 0))}</div>
                 <div class="label">准确率</div>
             </div>
             <div class="metric-card">
-                <div class="value">{metrics.get('precision', 0):.4f}</div>
+                <div class="value">{_fmt(metrics.get('precision', metrics.get('precision_weighted', 0)))}</div>
                 <div class="label">精确率</div>
             </div>
             <div class="metric-card">
-                <div class="value">{metrics.get('recall', 0):.4f}</div>
+                <div class="value">{_fmt(metrics.get('recall', metrics.get('recall_weighted', 0)))}</div>
                 <div class="label">召回率</div>
             </div>
             <div class="metric-card">
-                <div class="value">{metrics.get('f1_score', 0):.4f}</div>
+                <div class="value">{_fmt(metrics.get('f1_score', metrics.get('f1_weighted', 0)))}</div>
                 <div class="label">F1分数</div>
             </div>
         </div>
@@ -594,7 +601,7 @@ class ExperimentReport:
     <div class="section">
         <h2>🔍 注意力分析</h2>
         <p>数据源: {', '.join(stats.get('source_names', []))}</p>
-        <p>平均注意力权重: {[f'{w:.3f}' for w in stats.get('mean_weights', [])]}</p>
+        <p>平均注意力权重: {', '.join(f'{w:.3f}' for w in stats.get('mean_weights', []))}</p>
         <div class="figure-container">
             <img src="{figures_rel_path}/attention/attention_weights.png" alt="注意力权重">
             <p>图7: 注意力权重分布</p>

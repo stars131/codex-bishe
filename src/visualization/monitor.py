@@ -693,6 +693,14 @@ class TrainingMonitor:
         metrics: Dict[str, float] = None
     ):
         """保存模型评估结果"""
+        # 输入验证
+        if y_true is None or y_pred is None:
+            raise ValueError("y_true 和 y_pred 不能为 None")
+        if len(y_true) != len(y_pred):
+            raise ValueError(f"y_true 长度 ({len(y_true)}) 与 y_pred 长度 ({len(y_pred)}) 不匹配")
+        if len(y_true) == 0:
+            raise ValueError("评估数据为空")
+
         from sklearn.metrics import confusion_matrix, classification_report
 
         results = {

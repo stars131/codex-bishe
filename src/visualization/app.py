@@ -399,12 +399,12 @@ def main():
         model_results_path = None
 
         # 从 checkpoint 中加载 history
-        best_model_path = os.path.join(checkpoint_dir, "best_model.pth") if 'checkpoint_dir' in dir() else None
+        best_model_path = os.path.join(checkpoint_dir, "best_model.pth")
         if best_model_path and os.path.exists(best_model_path):
             history_path = best_model_path  # history 存储在 checkpoint 中
 
         # 查找测试结果
-        test_results_path = os.path.join(results_dir, "test_results.pkl") if 'results_dir' in dir() else None
+        test_results_path = os.path.join(results_dir, "test_results.pkl")
         if test_results_path and os.path.exists(test_results_path):
             model_results_path = test_results_path
 
@@ -591,11 +591,104 @@ def main():
                 with col1:
                     st.metric("准确率", f"{metrics.get('accuracy', 0):.4f}")
                 with col2:
-                    st.metric("精确率", f"{metrics.get('precision', 0):.4f}")
+                    st.metric("精确率", f"{metrics.get('precision', metrics.get('precision_weighted', 0)):.4f}")
                 with col3:
-                    st.metric("召回率", f"{metrics.get('recall', 0):.4f}")
+                    st.metric("召回率", f"{metrics.get('recall', metrics.get('recall_weighted', 0)):.4f}")
                 with col4:
-                    st.metric("F1分数", f"{metrics.get('f1_score', 0):.4f}")
+                    st.metric("F1分数", f"{metrics.get('f1_score', metrics.get('f1_weighted', 0)):.4f}")
+
+            # 置信区间
+            if 'confidence_intervals' in results:
+                ci = results['confidence_intervals']
+                if ci:
+                    st.subheader("95% 置信区间 (Bootstrap)")
+                    ci_cols = st.columns(len(ci))
+                    for idx, (metric_name, interval) in enumerate(ci.items()):
+                        with ci_cols[idx]:
+                            label_map = {'accuracy': '准确率', 'f1_weighted': 'F1', 'auc_roc': 'AUC-ROC'}
+                            st.metric(
+                                label_map.get(metric_name, metric_name),
+                                f"{interval['mean']:.4f}",
+                                delta=f"[{interval['lower']:.4f}, {interval['upper']:.4f}]"
+                            )
+
+            # ROC 曲线
+            if 'y_proba' in results and 'y_true' in results:
+                st.subheader("ROC 曲线")
+                try:
+                    from sklearn.metrics import roc_curve, auc as sk_auc
+                    from sklearn.preprocessing import label_binarize
+
+                    y_true_roc = results['y_true']
+                    y_proba_roc = results['y_proba']
+                    class_names_roc = results.get('class_names', [f'Class {i}' for i in range(y_proba_roc.shape[1])])
+                    num_cls = len(class_names_roc)
+
+                    y_true_bin = label_binarize(y_true_roc, classes=range(num_cls))
+
+                    fig_roc = go.Figure()
+                    for i, cls_name in enumerate(class_names_roc):
+                        if num_cls == 2 and i == 0:
+                            continue
+                        if num_cls == 2:
+                            fpr, tpr, _ = roc_curve(y_true_roc, y_proba_roc[:, 1])
+                        else:
+                            fpr, tpr, _ = roc_curve(y_true_bin[:, i], y_proba_roc[:, i])
+                        roc_auc_val = sk_auc(fpr, tpr)
+                        fig_roc.add_trace(go.Scatter(
+                            x=fpr, y=tpr, mode='lines',
+                            name=f'{cls_name} (AUC={roc_auc_val:.4f})'
+                        ))
+                    fig_roc.add_trace(go.Scatter(
+                        x=[0, 1], y=[0, 1], mode='lines',
+                        line=dict(dash='dash', color='gray'), name='随机基线'
+                    ))
+                    fig_roc.update_layout(
+                        title='ROC 曲线',
+                        xaxis_title='假阳性率 (FPR)',
+                        yaxis_title='真阳性率 (TPR)',
+                        height=500
+                    )
+                    st.plotly_chart(fig_roc, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"ROC 曲线生成失败: {e}")
+
+            # PR 曲线
+            if 'y_proba' in results and 'y_true' in results:
+                st.subheader("精确率-召回率 曲线")
+                try:
+                    from sklearn.metrics import precision_recall_curve, auc as sk_auc
+                    from sklearn.preprocessing import label_binarize
+
+                    y_true_pr = results['y_true']
+                    y_proba_pr = results['y_proba']
+                    class_names_pr = results.get('class_names', [f'Class {i}' for i in range(y_proba_pr.shape[1])])
+                    num_cls_pr = len(class_names_pr)
+
+                    y_true_bin_pr = label_binarize(y_true_pr, classes=range(num_cls_pr))
+
+                    fig_pr = go.Figure()
+                    for i, cls_name in enumerate(class_names_pr):
+                        if num_cls_pr == 2 and i == 0:
+                            continue
+                        if num_cls_pr == 2:
+                            prec, rec, _ = precision_recall_curve(y_true_pr, y_proba_pr[:, 1])
+                        else:
+                            prec, rec, _ = precision_recall_curve(y_true_bin_pr[:, i], y_proba_pr[:, i])
+                        pr_auc_val = sk_auc(rec, prec)
+                        fig_pr.add_trace(go.Scatter(
+                            x=rec, y=prec, mode='lines',
+                            name=f'{cls_name} (AUC={pr_auc_val:.4f})'
+                        ))
+                    fig_pr.update_layout(
+                        title='精确率-召回率 曲线',
+                        xaxis_title='召回率 (Recall)',
+                        yaxis_title='精确率 (Precision)',
+                        height=500
+                    )
+                    st.plotly_chart(fig_pr, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"PR 曲线生成失败: {e}")
 
         else:
             st.info("暂无模型评估结果，请先训练并评估模型")
