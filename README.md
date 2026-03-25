@@ -1,210 +1,361 @@
-# 基于多源数据融合的网络攻击检测系统
+# 基于多源数据融合与 Agentic 决策的网络攻击检测系统
 
-本项目实现了一种基于多源数据融合的网络入侵检测方法，通过将网络流量特征分割为多个数据源，利用深度学习编码器独立提取特征后进行融合，实现对网络攻击的高效检测与分类。
+本项目面向毕业设计场景，当前已经整理为一套可直接在服务器运行的正式实验工程，核心目标是：
 
-## 系统架构
+- 使用 `BCCC-CSE-CIC-IDS-2018` 数据集进行网络攻击检测实验
+- 构建 `flow + log/context` 双分支特征融合
+- 将威胁情报作为第三源，采用 `decision-level fusion`
+- 在推理阶段加入 `Agentic` 决策控制
+- 自动输出论文可用的表格、图像和实验报告
 
+如果你现在的目标是“在服务器上一键跑完整实验并产出论文材料”，优先看：
+
+- `run_bccc_formal_experiments.py`
+- `server_formal_bccc_experiments.sh`
+- `docs/bccc_cicids2018_agentic.md`
+
+## 1. 当前项目能做什么
+
+当前仓库已经支持以下两类工作流。
+
+### A. 快速验证工作流
+
+适合本地或服务器先抽小样本验证整条链路：
+
+- 从 BCCC 双层压缩包中抽样
+- 自动构造 `flow_*` 特征
+- 自动派生 `log_*` 上下文特征
+- 自动生成本地威胁情报库
+- 启动模拟 HTTP API
+- 调用 API 生成 threat-intel sidecar
+- 执行预处理、训练、测试
+
+入口：
+
+- `python run_bccc_agentic_demo.py`
+
+### B. 正式实验工作流
+
+适合毕业设计/论文正式实验：
+
+- 批量运行主实验、消融实验、融合方法对比实验
+- 每个实验单独保存 checkpoint、metrics、图像和 HTML 报告
+- 汇总输出 CSV 表、LaTeX 表、Markdown 总报告、对比图
+- 支持服务器一键运行
+
+入口：
+
+- `python run_bccc_formal_experiments.py --suite full`
+- `bash server_formal_bccc_experiments.sh`
+
+## 2. 当前默认实验设计
+
+正式实验默认包含这些实验组：
+
+1. `flow_only_single`
+2. `log_only_single`
+3. `flow_log_attention`
+4. `flow_log_gated`
+5. `flow_log_multi_head`
+6. `flow_log_ti_decision`
+7. `flow_log_ti_agentic`
+
+其中：
+
+- `flow_only_single`：只使用流量特征
+- `log_only_single`：只使用派生上下文/日志特征
+- `flow_log_*`：两源特征融合对比
+- `flow_log_ti_decision`：加入威胁情报的决策层融合
+- `flow_log_ti_agentic`：在决策层融合基础上加入 Agentic 推理控制
+
+## 3. 数据集要求
+
+当前主线数据集为：
+
+- `BCCC-CSE-CIC-IDS-2018`
+
+默认本地路径：
+
+- `data/数据集BCCC-CSE-CIC-IDS-2018`
+
+这个数据集是双层压缩结构：
+
+- 外层 zip：按日期划分
+- 内层 zip：按攻击类别或 benign 划分
+- 最内层 csv：真实流级样本
+
+本项目已经实现自动读取这类结构，不要求你先手工全部解压。
+
+## 4. 项目结构
+
+```text
+main.py
+run_bccc_agentic_demo.py
+run_bccc_formal_experiments.py
+serve_mock_threat_intel_api.py
+server_formal_bccc_experiments.sh
+
+src/
+  config/
+  data/
+  evaluation/
+  experiments/
+  models/
+  threat_intel/
+  visualization/
+
+docs/
+tests/
 ```
-原始数据 → 预处理 → 多源特征分割 → 独立编码 → 特征融合 → 攻击分类
-              ↓                        ↓           ↓
-         数据清洗/归一化          MLP/CNN/LSTM   Attention/Gated
-                                /Transformer    /Bilinear/Cross
-```
 
-### 核心模块
+重点目录说明：
 
-| 模块 | 说明 |
-|------|------|
-| **数据预处理** | 支持 CIC-IDS-2017 和 KDD Cup 99 数据集，自动清洗、编码、归一化 |
-| **多源分割** | 将特征按类型分为两个数据源（流量/时序 + 标志位/头部/批量） |
-| **融合模型** | FusionNet 支持 4 种编码器 × 6 种融合方法的灵活组合 |
-| **训练引擎** | 支持混合精度训练、梯度累积、学习率预热、早停机制 |
-| **消融实验** | 系统性对比不同编码器和融合方法的效果 |
-| **可视化** | Streamlit 交互式仪表板，实时监控训练过程 |
+- `src/data/`：数据读取、BCCC 适配、多模态构造
+- `src/models/`：单源、多源、决策层融合、Agentic 相关模型
+- `src/threat_intel/`：本地威胁情报库与模拟 API
+- `src/experiments/`：正式实验总控与论文级结果汇总
+- `src/visualization/`：图像、报告和 Streamlit 页面
+- `docs/`：使用说明
+- `tests/`：核心回归测试
 
-## 项目结构
+## 5. 安装环境
 
-```
-├── main.py                     # 主入口（CIC-IDS-2017 完整流程）
-├── quick_test.py               # Windows 快速测试（KDD Cup 99）
-├── requirements.txt            # Python 依赖
-├── Dockerfile                  # Docker 镜像配置
-├── docker-compose.yml          # Docker Compose 多服务编排
-├── src/
-│   ├── config/
-│   │   ├── config.yaml         # 主配置文件
-│   │   └── config_windows.yaml # Windows 专用配置
-│   ├── data/
-│   │   ├── dataloader.py       # CIC-IDS-2017 数据加载与预处理
-│   │   ├── kddcup_loader.py    # KDD Cup 99 数据加载与预处理
-│   │   ├── dataset.py          # PyTorch Dataset 定义
-│   │   ├── preprocess.py       # 数据清洗与特征工程
-│   │   └── visualization.py    # 数据探索可视化
-│   ├── models/
-│   │   ├── fusion_net.py       # 多源融合模型（FusionNet）
-│   │   ├── losses.py           # 自定义损失函数
-│   │   └── interpretability.py # 模型可解释性分析
-│   ├── evaluation/
-│   │   └── evaluator.py        # 综合评估器
-│   ├── visualization/
-│   │   ├── app.py              # Streamlit 仪表板
-│   │   ├── plots.py            # 可视化绘图函数
-│   │   ├── monitor.py          # 训练监控
-│   │   └── report.py           # 报告生成
-│   └── utils/
-│       └── helpers.py          # 工具函数
-├── tests/                      # 单元测试
-├── data/                       # 数据目录
-│   ├── raw/                    # 原始数据集
-│   └── processed/              # 预处理后数据
-└── outputs/                    # 输出目录
-    ├── checkpoints/            # 模型权重
-    ├── results/                # 实验结果
-    ├── figures/                # 可视化图表
-    └── logs/                   # 训练日志
-```
-
-## 环境配置
-
-### 依赖安装
+### 本地 / Linux / 服务器
 
 ```bash
 pip install -r requirements.txt
 ```
 
 主要依赖：
-- PyTorch >= 2.0.0
-- scikit-learn >= 1.3.0
-- pandas >= 2.0.0
-- matplotlib / seaborn
-- streamlit（可视化仪表板）
 
-### Docker 部署
+- `torch`
+- `numpy`
+- `pandas`
+- `scikit-learn`
+- `matplotlib`
+- `seaborn`
+- `pyyaml`
+- `pytest`
 
-```bash
-# 启动 Streamlit 仪表板
-docker-compose up -d dashboard      # http://localhost:8501
+## 6. 快速开始
 
-# 运行训练
-docker-compose run train
-
-# 运行预处理
-docker-compose run preprocess
-```
-
-## 使用方法
-
-### 完整流程（CIC-IDS-2017）
+### 6.1 小样本一键验证
 
 ```bash
-# 预处理 + 训练 + 评估 + 报告
-python main.py --data_dir "/path/to/CIC-IDS-2017" --mode full
-
-# 单独运行各阶段
-python main.py --data_dir "/path/to/CIC-IDS-2017" --mode preprocess
-python main.py --mode train
-python main.py --mode evaluate
-python main.py --mode ablation
-python main.py --mode dashboard
+python run_bccc_agentic_demo.py
 ```
 
-### Windows 快速测试（KDD Cup 99）
+可选参数：
 
 ```bash
-# 完整测试流程（自动下载数据、预处理、训练）
-python quick_test.py
-
-# 仅预处理 / 仅训练 / 启动仪表板
-python quick_test.py --mode preprocess
-python quick_test.py --mode train
-python quick_test.py --mode dashboard
-
-# 自定义参数
-python quick_test.py --data_file "path/to/kddcup.csv" --epochs 50 --sample_size 100000
+python run_bccc_agentic_demo.py \
+  --sample-per-member 120 \
+  --max-members 6 \
+  --epochs 2 \
+  --batch-size 64
 ```
 
-### 从检查点恢复训练
+这个脚本会自动完成：
+
+1. 从 BCCC 压缩包抽样
+2. 生成 `flow` / `log` 多模态文件
+3. 生成 mock threat-intel library
+4. 启动 mock API
+5. 调用 API 得到 threat-intel sidecar
+6. 预处理
+7. 训练
+8. 测试
+
+## 7. 正式实验
+
+### 7.1 运行 quick 套件
+
+适合先验证服务器和代码环境。
 
 ```bash
-python src/train.py --resume outputs/<experiment_name>/checkpoints/best_model.pth
+python run_bccc_formal_experiments.py --suite quick
 ```
 
-### 消融实验
+### 7.2 运行 full 套件
+
+适合论文正式实验。
 
 ```bash
-python src/train.py --config src/config/config.yaml --ablation
+python run_bccc_formal_experiments.py --suite full
 ```
 
-## 模型说明
+### 7.3 全量/大样本建议
 
-### 编码器类型
+如果要尽量接近正式论文实验，建议服务器上使用类似参数：
 
-| 编码器 | 说明 |
-|--------|------|
-| `mlp` | 多层感知机，适用于结构化表格数据 |
-| `cnn` | 一维卷积网络，捕获局部特征模式 |
-| `lstm` | 长短时记忆网络，建模时序依赖关系 |
-| `transformer` | 自注意力机制，捕获全局特征交互 |
-
-### 融合方法
-
-| 方法 | 说明 |
-|------|------|
-| `attention` | 注意力融合，自适应学习数据源权重 |
-| `multi_head` | 多头注意力融合 |
-| `cross` | 交叉注意力，建模数据源间交互 |
-| `gated` | 门控融合，控制信息流通 |
-| `bilinear` | 双线性融合，捕获二阶特征交互 |
-| `concat` | 拼接融合，作为基线方法 |
-
-### 损失函数
-
-支持 `cross_entropy`、`focal`、`label_smoothing`、`asymmetric`、`dice`、`class_balanced` 等多种损失函数，可通过配置文件灵活切换。
-
-## 配置说明
-
-所有超参数集中在 `src/config/config.yaml` 中管理：
-
-```yaml
-model:
-  architecture:
-    hidden_dim: 256       # 隐藏层维度
-    num_layers: 3         # 网络层数
-    dropout: 0.3          # Dropout 比率
-  fusion:
-    method: "attention"   # 融合方法
-
-training:
-  epochs: 100
-  optimizer:
-    type: "adamw"
-    learning_rate: 0.001
-  early_stopping:
-    patience: 15
+```bash
+python run_bccc_formal_experiments.py \
+  --suite full \
+  --sample-per-member 0 \
+  --max-members 0 \
+  --epochs 30 \
+  --batch-size 256 \
+  --member-keywords ""
 ```
 
-## 支持的数据集
+参数说明：
 
-### CIC-IDS-2017
-- 加拿大网络安全研究所发布的入侵检测数据集
-- 包含正常流量和多种攻击类型（DDoS、PortScan、Brute Force 等）
-- 多源分割：流量/时序特征 + 标志位/头部/批量特征
+- `--sample-per-member 0`：每个内层 zip 全量读取
+- `--max-members 0`：不限制成员数量
+- `--member-keywords ""`：不按关键词筛选攻击包
 
-### KDD Cup 99
-- 经典网络入侵检测基准数据集
-- 5 分类：Normal、DoS、Probe、R2L、U2R
-- 多源分割：基本连接/内容特征 + 流量/主机特征
+### 7.4 自定义只跑部分实验
 
-## 评估指标
+```bash
+python run_bccc_formal_experiments.py \
+  --experiments flow_log_attention,flow_log_ti_decision,flow_log_ti_agentic
+```
 
-系统提供全面的评估体系：
-- Accuracy、Precision、Recall、F1-Score
-- ROC-AUC、PR-AUC
-- 混淆矩阵
-- 每类别详细指标
-- Bootstrap 置信区间
-- McNemar 统计检验
+## 8. 服务器一键运行
 
-## 许可证
+### 8.1 正式实验推荐入口
 
-本项目仅供学术研究使用。
+```bash
+bash server_formal_bccc_experiments.sh
+```
+
+这个脚本会自动：
+
+1. 检查 Python / GPU
+2. 安装依赖
+3. 调用正式实验总控
+
+你也可以通过环境变量覆盖参数：
+
+```bash
+DATASET_DIR=data/数据集BCCC-CSE-CIC-IDS-2018 \
+SUITE=full \
+SAMPLE_PER_MEMBER=0 \
+MAX_MEMBERS=0 \
+EPOCHS=30 \
+BATCH_SIZE=256 \
+bash server_formal_bccc_experiments.sh
+```
+
+### 8.2 小样本 demo 服务器入口
+
+```bash
+bash server_train_bccc_agentic.sh
+```
+
+## 9. 威胁情报设计
+
+本项目中的威胁情报模块不是直接把当前样本标签写回特征，而是走下面这条路径：
+
+1. 根据样本构建本地 IOC 库
+2. 启动模拟 HTTP API
+3. 通过 API 查询 `src_ip / dst_ip / src_port / dst_port / protocol`
+4. 返回数值化情报特征
+5. 作为第三源参与决策层融合
+
+默认实现位置：
+
+- `src/threat_intel/mock_api.py`
+
+单独启动 API：
+
+```bash
+python serve_mock_threat_intel_api.py \
+  --library data/threat_intel/bccc_cicids2018_mock_library.json
+```
+
+## 10. 输出内容
+
+正式实验运行后，会在 `outputs/formal_bccc_<timestamp>/` 下生成：
+
+- `tables/experiment_summary.csv`
+- `tables/experiment_summary.tex`
+- `tables/per_class_metrics.csv`
+- `tables/per_class_metrics.tex`
+- `tables/confidence_intervals.csv`
+- `tables/mcnemar_flow_log_attention_vs_agentic.json`
+- `comparison_figures/metric_comparison.png`
+- `comparison_figures/per_class_f1_heatmap.png`
+- `comparison_figures/attention_comparison.png`
+- `comparison_figures/validation_macro_f1_curves.png`
+- `comparison_figures/agentic_action_distribution.png`
+- `dataset_report/.../report.html`
+- `formal_experiment_report.md`
+
+每个子实验目录还会包含：
+
+- `checkpoints/best_model.pth`
+- `results/evaluation_metrics.json`
+- `results/test_results.pkl`
+- `figures/`
+- `reports/<experiment>/report.html`
+
+这些文件可以直接用于毕业设计论文中的：
+
+- 实验结果表
+- 分类性能对比图
+- 消融实验图
+- 注意力可视化图
+- 训练过程图
+- 数据集统计图
+
+## 11. Web 页面
+
+仓库保留了 Streamlit 可视化页面：
+
+```bash
+streamlit run src/visualization/app.py
+```
+
+但当前最稳定、最完整的正式实验入口仍然是脚本方式：
+
+- `run_bccc_formal_experiments.py`
+- `server_formal_bccc_experiments.sh`
+
+如果你后续需要“网页上一键启动正式实验”，可以在这个基础上继续扩展。
+
+## 12. 重要说明
+
+### 12.1 关于 log 分支
+
+BCCC 原始数据本身是流级 CSV，不是主机日志文件。  
+为了满足“多源数据融合”的毕业设计目标，当前项目从以下字段派生出第二分支的 `log/context` 特征：
+
+- 时间戳
+- 端口
+- 协议
+- 握手状态
+- 握手完整性标记
+- IP 网络上下文
+
+这是一种可复现实验设计，适合论文实现与对比实验。
+
+### 12.2 关于正式结果
+
+小样本 quick/demo 结果只用于：
+
+- 验证代码链路
+- 验证服务器环境
+- 验证实验输出是否完整
+
+论文最终结果应以更大样本或全量正式实验为准。
+
+## 13. 相关脚本速查
+
+- `run_bccc_agentic_demo.py`：BCCC 小样本一键 demo
+- `run_bccc_formal_experiments.py`：BCCC 正式实验总控
+- `serve_mock_threat_intel_api.py`：单独启动 mock threat-intel API
+- `server_train_bccc_agentic.sh`：服务器 demo 入口
+- `server_formal_bccc_experiments.sh`：服务器正式实验入口
+- `run_um_nids_agentic.py`：UM-NIDS 处理后文件的多模态接入入口
+
+## 14. 文档
+
+- `docs/bccc_cicids2018_agentic.md`
+- `docs/cicids2018_agentic_data_format.md`
+- `docs/project_intro.md`
+
+## 15. 许可证与用途
+
+本项目主要用于课程设计、毕业设计和学术研究。  
+请不要将其直接作为生产环境安全产品使用。
