@@ -126,14 +126,26 @@ dmypy.json
 data/raw/*
 data/processed/*
 data/logs/*
+data/threat_intel/*
+data/数据集BCCC-CSE-CIC-IDS-2018/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/logs/.gitkeep
+!data/threat_intel/
+!data/threat_intel/threat_intel_features.json
+!data/threat_intel/mitre_attack/
+!data/threat_intel/mitre_attack/enterprise-attack.json
+!data/threat_intel/mitre_attack/ics-attack.json
 
 # Model outputs
 outputs/checkpoints/*
 outputs/results/*
 outputs/figures/*
+outputs/exp_*/
+outputs/formal_bccc_*/
+outputs/generated_configs/*
+outputs/kddcup_test_*/
+outputs/paper_benchmark_*/
 !outputs/checkpoints/.gitkeep
 !outputs/results/.gitkeep
 !outputs/figures/.gitkeep
@@ -167,3 +179,12 @@ Thumbs.db
 *.temp
 tmp/
 temp/
+pytest-bccc-agentic/
+pytest-formal-bccc/
+pytest-multimodal-builder/
+pytest-um-nids-runner/
+multimodal-builder-*/
+pytest-cache-files-*/
+pytest-temp/
+nul
+datacon2025-xlab-httpcve-sample/

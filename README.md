@@ -126,7 +126,7 @@ python quick_test.py --data_file "path/to/kddcup.csv" --epochs 50 --sample_size 
 ### 从检查点恢复训练
 
 ```bash
-python src/train.py --resume outputs/checkpoints/best_model.pth
+python src/train.py --resume outputs/<experiment_name>/checkpoints/best_model.pth
 ```
 
 ### 消融实验

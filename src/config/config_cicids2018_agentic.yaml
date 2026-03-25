@@ -1,0 +1,185 @@
+project:
+  name: "network-attack-detection"
+  version: "0.2.0"
+  description: "Flow/log fusion with threat-intel decision fusion and agentic inference"
+
+data:
+  raw_dir: "data/raw/CIC-IDS-2018"
+  processed_dir: "data/processed"
+  log_dir: "data/logs"
+
+  multimodal:
+    enabled: true
+    input_format: "single_table"
+    path: "data/processed/um_nids_cicids2018.csv"
+    label_column: "label"
+    id_column: "sample_id"
+    flow:
+      name: "flow"
+      columns: []
+      prefixes: ["flow_", "net_", "traffic_"]
+    log:
+      name: "log"
+      columns: []
+      prefixes: ["log_", "host_", "event_", "context_", "payload_"]
+
+  institutional_sources: []
+
+  threat_intel:
+    enabled: false
+    source_name: "threat_intel"
+    dir: "data/threat_intel"
+    feature_mapping: "data/threat_intel/threat_intel_features.json"
+    source_path: null
+    split_paths: {}
+    join_strategy: "key"
+    join_key: "sample_id"
+    intel_key: "sample_id"
+    feature_columns: null
+    allow_zero_fallback: false
+
+  preprocessing:
+    binary_classification: false
+    feature_selection: "all"
+    normalize: false
+
+  balance:
+    enabled: false
+    method: "smote"
+
+  split:
+    test_size: 0.2
+    val_size: 0.1
+    stratify: true
+    random_state: 42
+
+  multi_source:
+    source1_groups: ["traffic", "temporal"]
+    source2_groups: ["flags", "header", "bulk"]
+    extra_source_groups: []
+
+  loader:
+    batch_size: 256
+    num_workers: 8
+    pin_memory: true
+    use_weighted_sampler: true
+    augment_train: false
+
+model:
+  type: "decision_fusion_net"
+
+  architecture:
+    hidden_dim: 256
+    num_layers: 3
+    dropout: 0.3
+    activation: "relu"
+    encoder_type: "mlp"
+
+  fusion:
+    method: "attention"
+    attention_heads: 4
+
+  decision_fusion:
+    hidden_dim: 256
+    threat_encoder_type: "mlp"
+    threat_intel_dim: null
+
+  agentic_mode:
+    enabled: true
+    uncertainty_threshold: 0.55
+    intel_confidence_threshold: 0.70
+    benign_class_idx: 0
+    suspicious_class_indices: []
+    consensus_boost: 0.15
+
+  input_dim: null
+  source1_dim: null
+  source2_dim: null
+  num_classes: null
+
+training:
+  epochs: 100
+  batch_size: 256
+
+  optimizer:
+    type: "adamw"
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    momentum: 0.9
+    betas: [0.9, 0.999]
+
+  scheduler:
+    type: "cosine"
+    warmup_epochs: 5
+    step_size: 30
+    gamma: 0.1
+    min_lr: 0.00001
+
+  early_stopping:
+    enabled: true
+    patience: 20
+    min_delta: 0.0005
+    monitor: "val_f1_macro"
+    mode: "max"
+
+  loss:
+    type: "class_balanced"
+    class_weights: null
+    class_balanced_loss_type: "focal"
+    focal_gamma: 2.0
+    beta: 0.9999
+    label_smoothing: 0.0
+
+  gradient_clip:
+    enabled: true
+    max_norm: 1.0
+
+  mixed_precision: true
+
+  checkpoint:
+    save_best: true
+    save_last: true
+    save_every: 10
+
+evaluation:
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1_score
+    - auc_roc
+    - confusion_matrix
+
+  eval_every: 1
+  per_class_metrics: true
+
+experiment:
+  name: null
+  seed: 42
+  deterministic: true
+  device: "auto"
+  multi_gpu: false
+
+output:
+  checkpoint_dir: "outputs/checkpoints"
+  results_dir: "outputs/results"
+  figures_dir: "outputs/figures"
+  logs_dir: "outputs/logs"
+
+logging:
+  level: "INFO"
+  tensorboard: true
+  wandb: false
+  log_every: 10
+
+ablation:
+  compare_sources:
+    enabled: true
+    sources: ["flow_only", "log_only", "flow_log", "flow_log_threat_intel"]
+
+  compare_fusion:
+    enabled: true
+    methods: ["concat", "attention", "gated", "multi_head"]
+
+  hyperparam_search:
+    enabled: false

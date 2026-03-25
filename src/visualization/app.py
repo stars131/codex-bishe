@@ -255,13 +255,28 @@ def plot_confusion_matrix_plotly(cm, class_names, normalize=True):
 
 def plot_attention_weights_plotly(attention_weights, source_names):
     """Plotly 注意力权重分布"""
+    if attention_weights is None:
+        raise ValueError("attention_weights 为空")
+
+    attention_weights = np.asarray(attention_weights)
+    if attention_weights.ndim != 2:
+        raise ValueError(f"attention_weights 应为二维数组，当前形状: {attention_weights.shape}")
+    if attention_weights.shape[0] == 0 or attention_weights.shape[1] == 0:
+        raise ValueError("attention_weights 为空数组")
+
+    num_sources = attention_weights.shape[1]
+    if source_names is None or len(source_names) != num_sources:
+        source_names = [f'源{i + 1}' for i in range(num_sources)]
+
+    palette = px.colors.qualitative.Set2 + px.colors.qualitative.Safe + px.colors.qualitative.Pastel
+    colors = [palette[i % len(palette)] for i in range(num_sources)]
+
     fig = make_subplots(
         rows=1, cols=2,
         subplot_titles=("平均注意力权重", "权重分布")
     )
 
     mean_weights = np.mean(attention_weights, axis=0)
-    colors = ['#3498db', '#e74c3c']
 
     # 柱状图
     fig.add_trace(
@@ -712,9 +727,12 @@ def main():
 
         results = load_model_results(model_results_path)
 
-        if results and 'attention_weights' in results:
+        if results and results.get('attention_weights') is not None:
             attention_weights = results['attention_weights']
-            source_names = results.get('source_names', ['流量特征', '时序特征'])
+            num_sources = attention_weights.shape[1] if np.asarray(attention_weights).ndim == 2 else 0
+            source_names = results.get('source_names')
+            if source_names is None or len(source_names) != num_sources:
+                source_names = [f"Source {i + 1}" for i in range(num_sources)]
 
             # 注意力权重分布
             fig = plot_attention_weights_plotly(attention_weights, source_names)
@@ -744,6 +762,7 @@ def main():
                 fig_class_attn = go.Figure()
 
                 x_labels = list(class_attention.keys())
+                palette = px.colors.qualitative.Set2 + px.colors.qualitative.Safe + px.colors.qualitative.Pastel
                 for i, source in enumerate(source_names):
                     means = [class_attention[cls]['mean'][i] for cls in x_labels]
                     stds = [class_attention[cls]['std'][i] for cls in x_labels]
@@ -753,7 +772,7 @@ def main():
                         x=x_labels,
                         y=means,
                         error_y=dict(type='data', array=stds, visible=True),
-                        marker_color=['#3498db', '#e74c3c'][i]
+                        marker_color=palette[i % len(palette)]
                     ))
 
                 fig_class_attn.update_layout(
@@ -767,15 +786,19 @@ def main():
 
                 # 显示详细表格
                 st.subheader("详细数据")
-                attn_df = pd.DataFrame([
-                    {
+                attn_rows = []
+                for cls in class_attention.keys():
+                    row = {
                         '类别': cls,
-                        f'{source_names[0]}权重': f"{class_attention[cls]['mean'][0]:.4f} ± {class_attention[cls]['std'][0]:.4f}",
-                        f'{source_names[1]}权重': f"{class_attention[cls]['mean'][1]:.4f} ± {class_attention[cls]['std'][1]:.4f}",
                         '样本数': class_attention[cls]['count']
                     }
-                    for cls in class_attention.keys()
-                ])
+                    for i, source in enumerate(source_names):
+                        row[f'{source}权重'] = (
+                            f"{class_attention[cls]['mean'][i]:.4f} ± "
+                            f"{class_attention[cls]['std'][i]:.4f}"
+                        )
+                    attn_rows.append(row)
+                attn_df = pd.DataFrame(attn_rows)
                 st.dataframe(attn_df, hide_index=True, use_container_width=True)
 
                 # 注意力分析结论
@@ -793,8 +816,8 @@ def main():
 
             # 示例注意力权重
             st.subheader("示例注意力权重分析")
-            demo_attention = np.random.dirichlet([2, 3], size=1000)
-            demo_sources = ['流量+时序特征', '标志位+头部特征']
+            demo_attention = np.random.dirichlet(np.ones(3), size=1000)
+            demo_sources = ['Source 1', 'Source 2', 'Source 3']
             fig = plot_attention_weights_plotly(demo_attention, demo_sources)
             st.plotly_chart(fig, use_container_width=True)
 

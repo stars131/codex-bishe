@@ -2,11 +2,14 @@
 Data loading and preprocessing module for network attack detection.
 Supports CIC-IDS-2017 dataset with multi-source data fusion.
 """
+import json
 import os
-import pandas as pd
-import numpy as np
 import pickle
+from pathlib import Path
 from typing import Tuple, Dict, List, Optional, Union
+
+import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder, MinMaxScaler
 
@@ -22,6 +25,126 @@ except ImportError:
 
 import warnings
 warnings.filterwarnings('ignore')
+
+
+class ThreatIntelFeatureBuilder:
+    """Load precomputed threat-intel features as an additional model source."""
+
+    def __init__(self, config: Optional[Dict] = None):
+        self.config = config or {}
+        self.source_name = self.config.get('source_name', 'threat_intel')
+        self.source_path = self.config.get('source_path')
+        self.feature_mapping = self.config.get('feature_mapping')
+        self.feature_columns = self.config.get('feature_columns')
+        self.join_strategy = self.config.get('join_strategy', 'row_order')
+        self.allow_zero_fallback = self.config.get('allow_zero_fallback', False)
+
+    def get_feature_names(self) -> List[str]:
+        if self.feature_columns:
+            return list(self.feature_columns)
+        if not self.feature_mapping:
+            return []
+
+        mapping_path = Path(self.feature_mapping)
+        if not mapping_path.exists():
+            return []
+
+        with mapping_path.open('r', encoding='utf-8') as f:
+            mapping = json.load(f)
+
+        feature_names = []
+        for group_data in mapping.get('feature_groups', {}).values():
+            feature_names.extend(group_data.get('features', []))
+        return feature_names
+
+    def _load_raw_payload(self):
+        if not self.source_path:
+            raise ValueError("Threat-intel source_path is required when threat_intel.enabled is true")
+
+        source_path = Path(self.source_path)
+        if not source_path.exists():
+            raise FileNotFoundError(f"Threat-intel source file not found: {source_path}")
+
+        suffix = source_path.suffix.lower()
+        if suffix == '.csv':
+            return pd.read_csv(source_path)
+        if suffix in {'.parquet', '.pq'}:
+            return pd.read_parquet(source_path)
+        if suffix == '.npy':
+            return np.load(source_path, allow_pickle=True)
+        if suffix == '.npz':
+            return dict(np.load(source_path, allow_pickle=True))
+        if suffix in {'.pkl', '.pickle'}:
+            with source_path.open('rb') as f:
+                return pickle.load(f)
+        raise ValueError(f"Unsupported threat-intel source format: {suffix}")
+
+    def _coerce_payload(
+        self,
+        payload,
+        n_samples: int,
+    ) -> Tuple[np.ndarray, List[str]]:
+        mapping_names = self.get_feature_names()
+
+        if isinstance(payload, pd.DataFrame):
+            frame = payload.copy()
+            if self.feature_columns:
+                missing = [col for col in self.feature_columns if col not in frame.columns]
+                if missing:
+                    raise ValueError(f"Threat-intel feature columns missing from source file: {missing}")
+                frame = frame[self.feature_columns]
+            feature_names = list(frame.columns)
+            features = frame.to_numpy(dtype=np.float32)
+        elif isinstance(payload, np.ndarray):
+            features = np.asarray(payload, dtype=np.float32)
+            if features.ndim != 2:
+                raise ValueError(f"Threat-intel array must be 2D, got shape {features.shape}")
+            feature_names = mapping_names or [f'{self.source_name}_{i + 1}' for i in range(features.shape[1])]
+        elif isinstance(payload, dict):
+            if 'X' in payload:
+                features = np.asarray(payload['X'], dtype=np.float32)
+                feature_names = list(payload.get('feature_names') or mapping_names)
+            elif 'features' in payload:
+                features = np.asarray(payload['features'], dtype=np.float32)
+                feature_names = list(payload.get('feature_names') or mapping_names)
+            else:
+                frame = pd.DataFrame(payload)
+                return self._coerce_payload(frame, n_samples)
+            if features.ndim != 2:
+                raise ValueError(f"Threat-intel payload must be 2D, got shape {features.shape}")
+        else:
+            raise TypeError(f"Unsupported threat-intel payload type: {type(payload).__name__}")
+
+        if not feature_names:
+            feature_names = [f'{self.source_name}_{i + 1}' for i in range(features.shape[1])]
+        if len(feature_names) != features.shape[1]:
+            raise ValueError(
+                f"Threat-intel feature name count ({len(feature_names)}) does not match "
+                f"feature dimension ({features.shape[1]})"
+            )
+        if self.join_strategy != 'row_order':
+            raise ValueError(f"Unsupported threat-intel join strategy: {self.join_strategy}")
+        if features.shape[0] != n_samples:
+            raise ValueError(
+                f"Threat-intel row count ({features.shape[0]}) must match processed sample count ({n_samples})"
+            )
+        return features, feature_names
+
+    def build_features(self, n_samples: int) -> Tuple[np.ndarray, List[str]]:
+        if self.source_path:
+            return self._coerce_payload(self._load_raw_payload(), n_samples)
+
+        if self.allow_zero_fallback:
+            feature_names = self.get_feature_names()
+            if not feature_names:
+                raise ValueError("No threat-intel feature names available for zero fallback")
+            features = np.zeros((n_samples, len(feature_names)), dtype=np.float32)
+            return features, feature_names
+
+        raise ValueError(
+            "Threat-intel source_path is not configured. "
+            "Set data.threat_intel.source_path or enable allow_zero_fallback."
+        )
 
 
 class CICIDS2017Preprocessor:
@@ -396,33 +519,70 @@ class CICIDS2017Preprocessor:
         else:
             df = self.load_single_file(data_path)
 
-        # 2. 数据清洗
+        result = self.preprocess_dataframe(
+            df=df,
+            binary_classification=binary_classification,
+            feature_selection=feature_selection,
+            normalize=normalize
+        )
+
+        # 7. 保存结果
+        if save_path:
+            self.save_preprocessed(result, save_path)
+
+        print("\n预处理完成!")
+        print(f"特征维度: {result['X'].shape[1]}")
+        print(f"样本数量: {result['X'].shape[0]}")
+        print(f"类别数量: {len(result['class_names'])}")
+
+        return result
+
+    def preprocess_dataframe(
+        self,
+        df: pd.DataFrame,
+        binary_classification: bool = False,
+        feature_selection: str = 'correlation',
+        normalize: bool = True
+    ) -> Dict[str, np.ndarray]:
+        """
+        直接对DataFrame执行预处理流程
+
+        Args:
+            df: 原始DataFrame
+            binary_classification: 是否二分类
+            feature_selection: 特征选择方法
+            normalize: 是否标准化
+
+        Returns:
+            包含特征和标签的字典
+        """
+        # 1. 数据清洗
         df = self.clean_data(df)
 
-        # 3. 获取标签列
+        # 2. 获取标签列
         label_col = None
         for col in ['Label', ' Label', 'label']:
             if col in df.columns:
                 label_col = col
                 break
 
-        # 4. 编码标签
+        # 3. 编码标签
         y, class_names = self.encode_labels(df[label_col], binary=binary_classification)
         print(f"\n类别分布:")
         unique, counts = np.unique(y, return_counts=True)
         for u, c in zip(unique, counts):
             print(f"  {class_names[u]}: {c} ({c/len(y)*100:.2f}%)")
 
-        # 5. 特征选择
+        # 4. 特征选择
         X_df, feature_names = self.select_features(df, method=feature_selection)
         X = X_df.values.astype(np.float32)
 
-        # 6. 标准化
+        # 5. 标准化
         if normalize:
             X = self.normalize_features(X)
             print("已完成特征标准化")
 
-        result = {
+        return {
             'X': X,
             'y': y,
             'feature_names': feature_names,
@@ -430,17 +590,6 @@ class CICIDS2017Preprocessor:
             'num_features': X.shape[1],
             'num_classes': len(class_names)
         }
-
-        # 7. 保存结果
-        if save_path:
-            self.save_preprocessed(result, save_path)
-
-        print("\n预处理完成!")
-        print(f"特征维度: {X.shape[1]}")
-        print(f"样本数量: {X.shape[0]}")
-        print(f"类别数量: {len(class_names)}")
-
-        return result
 
     def save_preprocessed(self, data: Dict, path: str):
         """保存预处理后的数据"""
@@ -737,18 +886,20 @@ class DataSplitter:
             'X_test': X_test, 'y_test': y_test
         }
 
-    def split_multi_source(
+    def split_multi_source_list(
         self,
-        X1: np.ndarray,
-        X2: np.ndarray,
+        sources: List[np.ndarray],
         y: np.ndarray,
         stratify: bool = True
     ) -> Dict[str, np.ndarray]:
-        """
-        同时划分多个数据源
+        """同时划分多个数据源，确保各数据源索引一致。"""
+        if len(sources) < 2:
+            raise ValueError("至少需要两个数据源")
 
-        确保各数据源的划分索引一致。
-        """
+        n_samples = len(y)
+        if any(src.shape[0] != n_samples for src in sources):
+            raise ValueError("所有数据源与标签样本数必须一致")
+
         n_samples = len(y)
         indices = np.arange(n_samples)
 
@@ -777,8 +928,26 @@ class DataSplitter:
         print(f"  验证集: {len(idx_val)} 样本")
         print(f"  测试集: {len(idx_test)} 样本")
 
-        return {
-            'X1_train': X1[idx_train], 'X1_val': X1[idx_val], 'X1_test': X1[idx_test],
-            'X2_train': X2[idx_train], 'X2_val': X2[idx_val], 'X2_test': X2[idx_test],
+        result = {
             'y_train': y_train, 'y_val': y_val, 'y_test': y_test
         }
+        for i, src in enumerate(sources, start=1):
+            result[f'X{i}_train'] = src[idx_train]
+            result[f'X{i}_val'] = src[idx_val]
+            result[f'X{i}_test'] = src[idx_test]
+
+        return result
+
+    def split_multi_source(
+        self,
+        X1: np.ndarray,
+        X2: np.ndarray,
+        y: np.ndarray,
+        stratify: bool = True
+    ) -> Dict[str, np.ndarray]:
+        """
+        同时划分多个数据源
+
+        确保各数据源的划分索引一致。
+        """
+        return self.split_multi_source_list([X1, X2], y, stratify=stratify)

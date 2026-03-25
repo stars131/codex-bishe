@@ -17,6 +17,31 @@ data:
   processed_dir: "data/processed"
   log_dir: "data/logs"
 
+  # 可选：多机构数据源（启用后会与 raw_dir 合并预处理）
+  institutional_sources:
+    - name: "CSE-CIC-IDS2018"
+      institution: "CIC + CSE (University of New Brunswick)"
+      enabled: false
+      path: "D:/datasets/CSE-CIC-IDS2018"
+    - name: "CIC-DDoS2019"
+      institution: "Canadian Institute for Cybersecurity"
+      enabled: false
+      path: "D:/datasets/CIC-DDoS2019"
+    - name: "UNSW-NB15"
+      institution: "UNSW Canberra"
+      enabled: false
+      path: "D:/datasets/UNSW-NB15"
+
+  threat_intel:
+    enabled: false
+    source_name: "threat_intel"
+    dir: "data/threat_intel"
+    feature_mapping: "data/threat_intel/threat_intel_features.json"
+    source_path: null
+    join_strategy: "row_order"
+    feature_columns: null
+    allow_zero_fallback: false
+
   # 预处理选项
   preprocessing:
     binary_classification: false  # true: 二分类, false: 多分类
@@ -39,6 +64,7 @@ data:
   multi_source:
     source1_groups: ["basic", "content"]  # 第一数据源：基本+内容特征
     source2_groups: ["traffic", "host"]   # 第二数据源：流量+主机特征
+    extra_source_groups: []  # 例: [["basic"], ["traffic", "host"]]
 
   # DataLoader配置
   loader:

@@ -26,7 +26,7 @@ python main.py --mode dashboard
 python src/train.py --config src/config/config.yaml --ablation
 
 # 从检查点恢复训练
-python src/train.py --resume outputs/checkpoints/best_model.pth
+python src/train.py --resume outputs/<experiment_name>/checkpoints/best_model.pth
 
 # Docker 部署
 docker-compose up -d dashboard      # 启动 Streamlit 仪表板 (http://localhost:8501)
@@ -122,7 +122,7 @@ Windows 配置文件：`src/config/config_windows.yaml`（已设置 `num_workers
 
 - `outputs/checkpoints/` - 模型权重 (`best_model.pth`, `last_model.pth`)
 - `outputs/results/` - 实验结果 JSON
-- `outputs/logs/` - 训练日志
+- `outputs/<experiment_name>/train_*.log` - 训练日志
 - `outputs/figures/` - 可视化图表
 - `data/processed/multi_source_data.pkl` - 预处理数据缓存
 

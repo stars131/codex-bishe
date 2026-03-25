@@ -1,0 +1,185 @@
+\documentclass[12pt,a4paper]{ctexrep}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{caption}
+\geometry{left=2.5cm,right=2.5cm,top=2.8cm,bottom=2.8cm}
+\setstretch{1.5}
+
+\begin{document}
+
+% ================= 封面（按学校要求自行调整） =================
+\begin{titlepage}
+\centering
+\vspace*{2cm}
+{\zihao{2}\bfseries 毕业论文}\\[1.5cm]
+{\zihao{3}\bfseries 基于多源融合的网络入侵检测研究}\\[2cm]
+
+\begin{tabular}{rl}
+学\hspace{1em}院： & 信息工程学院 \\
+专\hspace{1em}业： & 计算机科学与技术 \\
+姓\hspace{1em}名： & XXX \\
+学\hspace{1em}号： & XXXXXXXXXX \\
+指导教师： & XXX 教授 \\
+\end{tabular}
+
+\vfill
+{\zihao{4} \today}
+\end{titlepage}
+
+% ================= 中文摘要 =================
+\chapter*{摘\quad 要}
+针对网络入侵检测中异构特征利用不足与类别不平衡问题，本文构建并实现了一个多源融合深度学习框架。以五分类任务（dos、normal、probe、r2l、u2r）为目标，比较单源基线与四种融合策略（concat、attention、gated、cross）。实验结果表明，gated 融合在测试集上取得最优性能：Accuracy=0.998042，Weighted-F1=0.998019，Macro-F1=0.887364；相较单源基线，Macro-F1 提升 0.031375。结果说明门控融合在保持整体精度的同时，对少数类识别更具优势。
+
+\noindent\textbf{关键词：} 网络入侵检测；多源数据融合；深度学习；类别不平衡；门控机制
+
+% ================= 英文摘要 =================
+\chapter*{Abstract}
+To address heterogeneous feature utilization and class imbalance in network intrusion detection, this thesis implements a multi-source deep learning framework for five-class classification (\texttt{dos}, \texttt{normal}, \texttt{probe}, \texttt{r2l}, \texttt{u2r}). We compare a single-source baseline with four fusion strategies: concat, attention, gated, and cross-attention fusion. Experimental results show that gated fusion achieves the best performance (Accuracy 0.998042, Weighted-F1 0.998019, Macro-F1 0.887364), improving Macro-F1 by 0.031375 over the baseline.
+
+\noindent\textbf{Key Words:} Intrusion Detection; Multi-Source Fusion; Deep Learning; Class Imbalance; Gated Fusion
+
+\tableofcontents
+\listoftables
+\listoffigures
+
+% ================= 正文 =================
+\chapter{绪论}
+\section{研究背景与意义}
+网络入侵检测是网络安全防护体系中的关键环节。传统方法通常基于单一特征空间建模，难以充分利用不同来源信息之间的互补性。在复杂攻击场景下，类别分布长尾与特征异构并存，导致模型对少数类识别能力不足。因此，研究多源融合方法具有现实意义。
+
+\section{国内外研究现状}
+现有研究主要包括：基于机器学习的检测方法、基于深度学习的检测方法，以及面向多模态/多源信息融合的检测方法。总体趋势是从手工特征向端到端表示学习转移，但在跨源建模和少数类稳健性方面仍存在改进空间。
+
+\section{本文主要工作}
+\begin{itemize}
+    \item 设计并实现多源融合入侵检测框架；
+    \item 在统一训练协议下系统比较五类模型；
+    \item 从整体指标与分类别指标分析融合策略优势。
+\end{itemize}
+
+\chapter{相关理论与方法}
+\section{问题定义}
+给定两路输入特征 $\mathbf{x}^{(1)} \in \mathbb{R}^{d_1}$ 与 $\mathbf{x}^{(2)} \in \mathbb{R}^{d_2}$，预测类别标签
+\begin{equation}
+ y \in \{1,\dots,C\}, \quad C=5.
+\end{equation}
+
+\section{模型结构}
+\subsection{单源基线模型}
+\texttt{single\_source\_mlp} 使用拼接后的单分支输入进行分类。
+
+\subsection{多源融合模型}
+\begin{itemize}
+    \item \texttt{fusion\_concat}：直接拼接融合；
+    \item \texttt{fusion\_attention}：注意力分配源权重；
+    \item \texttt{fusion\_gated}：门控控制源信息贡献；
+    \item \texttt{fusion\_cross}：交叉注意力建模源间交互。
+\end{itemize}
+
+\chapter{实验设计}
+\section{数据集与划分}
+实验使用当前项目已处理数据，训练/验证/测试样本分别为 101,909 / 14,559 / 29,118，输入维度为 $d_1=22$、$d_2=19$，类别为 dos、normal、probe、r2l、u2r。
+
+\section{实验环境}
+\begin{itemize}
+    \item GPU：NVIDIA GeForce RTX 4060 Laptop GPU
+    \item 深度学习框架：PyTorch
+    \item 训练策略：Mixed Precision
+\end{itemize}
+
+\section{训练配置}
+\begin{itemize}
+    \item Optimizer：AdamW（lr=0.001，weight decay=$10^{-4}$）
+    \item Scheduler：Cosine + Warmup(2 epochs)
+    \item Epochs：8
+    \item Batch size：256
+\end{itemize}
+
+\section{评价指标}
+采用 Accuracy、Weighted-F1、Macro-F1、参数量（Params）等指标，重点关注 Macro-F1 以评估不平衡场景鲁棒性。
+
+\chapter{实验结果与分析}
+\section{总体性能对比}
+\begin{table}[H]
+\centering
+\caption{不同模型在测试集上的性能对比}
+\label{tab:main_results}
+\begin{tabular}{lrrrrr}
+\toprule
+模型 & 参数量 & Acc & Weighted-F1 & Macro-F1 & 训练时长(s) \\
+\midrule
+single\_source\_mlp & 64,645  & 0.997665 & 0.997692 & 0.855989 & 17.29 \\
+fusion\_concat      & 148,485 & 0.997733 & 0.997719 & 0.884147 & 24.43 \\
+fusion\_attention   & 140,422 & 0.997665 & 0.997654 & 0.868650 & 26.67 \\
+fusion\_gated       & 198,405 & \textbf{0.998042} & \textbf{0.998019} & \textbf{0.887364} & 27.40 \\
+fusion\_cross       & 462,213 & 0.997630 & 0.997478 & 0.777557 & 34.66 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{分类别结果分析}
+\begin{table}[H]
+\centering
+\caption{分类别 F1 对比（fusion\_gated vs single\_source\_mlp）}
+\label{tab:per_class}
+\begin{tabular}{lrr}
+\toprule
+类别 & single\_source\_mlp & fusion\_gated \\
+\midrule
+dos    & 0.999542 & 0.999817 \\
+normal & 0.998178 & 0.998463 \\
+probe  & 0.981176 & 0.977673 \\
+r2l    & 0.920097 & 0.927536 \\
+u2r    & 0.380952 & 0.533333 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{结果讨论}
+相较单源基线，fusion\_gated 在 Accuracy 上提升 0.000378，在 Weighted-F1 上提升 0.000327，在 Macro-F1 上提升 0.031375。说明门控融合对少数类更有优势，整体鲁棒性更强。
+
+\chapter{总结与展望}
+\section{总结}
+本文完成了多源融合入侵检测系统实现与对比实验，证明门控融合在本任务中取得最优综合表现。
+
+\section{展望}
+\begin{itemize}
+    \item 引入多随机种子与统计显著性检验；
+    \item 扩展跨机构数据集泛化评估；
+    \item 面向少数类开展阈值校准与代价敏感优化。
+\end{itemize}
+
+% ================= 参考文献 =================
+\begin{thebibliography}{99}
+\bibitem{bishop2006}
+Christopher M. Bishop.
+\textit{Pattern Recognition and Machine Learning}.
+Springer, 2006.
+
+\bibitem{goodfellow2016}
+Ian Goodfellow, Yoshua Bengio, Aaron Courville.
+\textit{Deep Learning}.
+MIT Press, 2016.
+
+\bibitem{cicids2017}
+I. Sharafaldin, A. Habibi Lashkari, A. A. Ghorbani.
+Toward Generating a New Intrusion Detection Dataset and Intrusion Traffic Characterization.
+In \textit{ICISSP}, 2018.
+\end{thebibliography}
+
+% ================= 附录（可选） =================
+\appendix
+\chapter{可复现实验文件路径}
+\begin{itemize}
+    \item \texttt{outputs/paper\_benchmark\_20260220\_114246/paper\_results.csv}
+    \item \texttt{outputs/paper\_benchmark\_20260220\_114246/paper\_results.json}
+    \item \texttt{outputs/paper\_benchmark\_20260220\_114246/fusion\_gated/per\_class\_metrics.csv}
+    \item \texttt{outputs/paper\_benchmark\_20260220\_114246/single\_source\_mlp/per\_class\_metrics.csv}
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,166 @@
+project:
+  name: "network-attack-detection"
+  version: "0.3.0"
+  description: "BCCC-CSE-CIC-IDS-2018 flow/context fusion with threat-intel decision fusion"
+
+data:
+  raw_dir: "data/数据集BCCC-CSE-CIC-IDS-2018"
+  processed_dir: "data/processed"
+  log_dir: "data/logs"
+
+  multimodal:
+    enabled: true
+    input_format: "single_table"
+    path: "data/processed/bccc_cicids2018_agentic_sample.csv"
+    label_column: "label"
+    id_column: "sample_id"
+    flow:
+      name: "flow"
+      columns: []
+      prefixes: ["flow_"]
+    log:
+      name: "log"
+      columns: []
+      prefixes: ["log_"]
+
+  institutional_sources: []
+
+  threat_intel:
+    enabled: true
+    source_name: "threat_intel"
+    source_path: "data/threat_intel/bccc_cicids2018_agentic_threat_intel.csv"
+    split_paths: {}
+    join_strategy: "key"
+    join_key: "sample_id"
+    intel_key: "sample_id"
+    feature_columns: null
+    allow_zero_fallback: false
+
+  preprocessing:
+    binary_classification: false
+    feature_selection: "all"
+    normalize: true
+
+  balance:
+    enabled: false
+    method: "smote"
+
+  split:
+    test_size: 0.2
+    val_size: 0.1
+    stratify: true
+    random_state: 42
+
+  loader:
+    batch_size: 64
+    num_workers: 0
+    pin_memory: false
+    use_weighted_sampler: true
+    augment_train: false
+
+model:
+  type: "decision_fusion_net"
+
+  architecture:
+    hidden_dim: 128
+    num_layers: 2
+    dropout: 0.2
+    activation: "relu"
+    encoder_type: "mlp"
+
+  fusion:
+    method: "attention"
+    attention_heads: 4
+
+  decision_fusion:
+    hidden_dim: 128
+    threat_encoder_type: "mlp"
+    threat_intel_dim: null
+
+  agentic_mode:
+    enabled: true
+    uncertainty_threshold: 0.55
+    intel_confidence_threshold: 0.70
+    benign_class_idx: 0
+    suspicious_class_indices: []
+    consensus_boost: 0.15
+
+  input_dim: null
+  source1_dim: null
+  source2_dim: null
+  num_classes: null
+
+training:
+  epochs: 5
+  batch_size: 64
+
+  optimizer:
+    type: "adamw"
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    momentum: 0.9
+    betas: [0.9, 0.999]
+
+  scheduler:
+    type: "cosine"
+    warmup_epochs: 1
+    step_size: 30
+    gamma: 0.1
+    min_lr: 0.00001
+
+  early_stopping:
+    enabled: true
+    patience: 5
+    min_delta: 0.0005
+    monitor: "val_f1_macro"
+    mode: "max"
+
+  loss:
+    type: "class_balanced"
+    class_weights: null
+    class_balanced_loss_type: "focal"
+    focal_gamma: 2.0
+    beta: 0.9999
+    label_smoothing: 0.0
+
+  gradient_clip:
+    enabled: true
+    max_norm: 1.0
+
+  mixed_precision: false
+
+  checkpoint:
+    save_best: true
+    save_last: true
+    save_every: 1
+
+evaluation:
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1_score
+    - auc_roc
+    - confusion_matrix
+
+  eval_every: 1
+  per_class_metrics: true
+
+experiment:
+  name: null
+  seed: 42
+  deterministic: true
+  device: "auto"
+  multi_gpu: false
+
+output:
+  checkpoint_dir: "outputs/checkpoints"
+  results_dir: "outputs/results"
+  figures_dir: "outputs/figures"
+  logs_dir: "outputs/logs"
+
+logging:
+  level: "INFO"
+  tensorboard: true
+  wandb: false
+  log_every: 10

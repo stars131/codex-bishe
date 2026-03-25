@@ -1,34 +1,24 @@
 """
-PyTorch Dataset classes for network attack detection.
+PyTorch dataset utilities for network attack detection.
 Supports single-source and multi-source data loading.
 """
-import torch
-from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+import re
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Union
+import torch
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 
 class NetworkAttackDataset(Dataset):
-    """
-    单源网络攻击检测数据集
-
-    用于加载和提供单一数据源的网络流量数据。
-    """
+    """Single-source tabular dataset."""
 
     def __init__(
         self,
         features: np.ndarray,
         labels: np.ndarray,
-        transform: Optional[callable] = None
+        transform: Optional[callable] = None,
     ):
-        """
-        初始化数据集
-
-        Args:
-            features: 特征数组 (N, D)
-            labels: 标签数组 (N,)
-            transform: 可选的数据转换函数
-        """
         self.features = torch.FloatTensor(features)
         self.labels = torch.LongTensor(labels)
         self.transform = transform
@@ -39,10 +29,8 @@ class NetworkAttackDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.features[idx]
         y = self.labels[idx]
-
         if self.transform:
             x = self.transform(x)
-
         return x, y
 
     @property
@@ -55,73 +43,80 @@ class NetworkAttackDataset(Dataset):
 
 
 class MultiSourceDataset(Dataset):
-    """
-    多源网络攻击检测数据集
-
-    用于加载和提供多个数据源（如流量特征 + 时序特征）的数据。
-    支持注意力融合模型的训练。
-    """
+    """Dataset that returns an arbitrary number of sources plus a label."""
 
     def __init__(
         self,
-        source1_features: np.ndarray,
-        source2_features: np.ndarray,
-        labels: np.ndarray,
+        *source_features: np.ndarray,
+        labels: Optional[np.ndarray] = None,
+        source_names: Optional[List[str]] = None,
+        transforms: Optional[List[Optional[callable]]] = None,
         source1_name: str = "traffic",
         source2_name: str = "temporal",
         transform1: Optional[callable] = None,
-        transform2: Optional[callable] = None
+        transform2: Optional[callable] = None,
     ):
-        """
-        初始化多源数据集
+        if labels is None:
+            if len(source_features) < 3:
+                raise ValueError("Expected at least two source arrays and labels")
+            *source_arrays, labels = source_features
+        else:
+            source_arrays = list(source_features)
 
-        Args:
-            source1_features: 第一数据源特征 (N, D1)
-            source2_features: 第二数据源特征 (N, D2)
-            labels: 标签数组 (N,)
-            source1_name: 第一数据源名称
-            source2_name: 第二数据源名称
-            transform1: 第一数据源的转换函数
-            transform2: 第二数据源的转换函数
-        """
-        self.source1 = torch.FloatTensor(source1_features)
-        self.source2 = torch.FloatTensor(source2_features)
+        if len(source_arrays) < 2:
+            raise ValueError("MultiSourceDataset requires at least two source arrays")
+
+        self.sources = [torch.FloatTensor(features) for features in source_arrays]
         self.labels = torch.LongTensor(labels)
 
-        self.source1_name = source1_name
-        self.source2_name = source2_name
+        sample_counts = {source.shape[0] for source in self.sources}
+        sample_counts.add(self.labels.shape[0])
+        if len(sample_counts) != 1:
+            raise ValueError("All source arrays and labels must contain the same number of samples")
 
-        self.transform1 = transform1
-        self.transform2 = transform2
+        if source_names is None:
+            source_names = [source1_name, source2_name] + [
+                f"source{i}" for i in range(3, len(self.sources) + 1)
+            ]
+        if len(source_names) < len(self.sources):
+            source_names = source_names + [
+                f"source{i}" for i in range(len(source_names) + 1, len(self.sources) + 1)
+            ]
+        self.source_names = source_names[: len(self.sources)]
+
+        if transforms is None:
+            transforms = [transform1, transform2] + [None] * max(0, len(self.sources) - 2)
+        if len(transforms) < len(self.sources):
+            transforms = transforms + [None] * (len(self.sources) - len(transforms))
+        self.transforms = transforms[: len(self.sources)]
 
     def __len__(self) -> int:
         return len(self.labels)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        获取数据项
-
-        Returns:
-            (source1_features, source2_features, label)
-        """
-        x1 = self.source1[idx]
-        x2 = self.source2[idx]
-        y = self.labels[idx]
-
-        if self.transform1:
-            x1 = self.transform1(x1)
-        if self.transform2:
-            x2 = self.transform2(x2)
-
-        return x1, x2, y
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, ...]:
+        source_items = [source[idx] for source in self.sources]
+        label = self.labels[idx]
+        transformed = [
+            transform(source_item) if transform else source_item
+            for source_item, transform in zip(source_items, self.transforms)
+        ]
+        return (*transformed, label)
 
     @property
     def source1_dim(self) -> int:
-        return self.source1.shape[1]
+        return self.sources[0].shape[1]
 
     @property
     def source2_dim(self) -> int:
-        return self.source2.shape[1]
+        return self.sources[1].shape[1]
+
+    @property
+    def source_dims(self) -> List[int]:
+        return [source.shape[1] for source in self.sources]
+
+    @property
+    def num_sources(self) -> int:
+        return len(self.sources)
 
     @property
     def num_classes(self) -> int:
@@ -129,44 +124,36 @@ class MultiSourceDataset(Dataset):
 
 
 class DataTransforms:
-    """
-    数据转换工具类
-
-    提供各种数据增强和转换方法。
-    """
+    """Small feature-space augmentations for tabular tensors."""
 
     @staticmethod
     def add_gaussian_noise(tensor: torch.Tensor, std: float = 0.01) -> torch.Tensor:
-        """添加高斯噪声"""
         noise = torch.randn_like(tensor) * std
         return tensor + noise
 
     @staticmethod
     def random_dropout(tensor: torch.Tensor, p: float = 0.1) -> torch.Tensor:
-        """随机置零（特征dropout）"""
         mask = torch.rand_like(tensor) > p
         return tensor * mask
 
     @staticmethod
-    def feature_scaling(tensor: torch.Tensor, scale_range: Tuple[float, float] = (0.9, 1.1)) -> torch.Tensor:
-        """随机特征缩放"""
+    def feature_scaling(
+        tensor: torch.Tensor,
+        scale_range: Tuple[float, float] = (0.9, 1.1),
+    ) -> torch.Tensor:
         scale = torch.empty(tensor.shape).uniform_(*scale_range)
         return tensor * scale
 
 
 class TrainingTransform:
-    """
-    训练时的数据增强组合
-
-    可以组合多种增强方法。
-    """
+    """Composable training-time augmentation."""
 
     def __init__(
         self,
         noise_std: float = 0.01,
         dropout_p: float = 0.1,
         use_noise: bool = True,
-        use_dropout: bool = False
+        use_dropout: bool = False,
     ):
         self.noise_std = noise_std
         self.dropout_p = dropout_p
@@ -185,86 +172,65 @@ def create_data_loaders(
     data_dict: Dict[str, np.ndarray],
     batch_size: int = 64,
     num_workers: int = 4,
+    pin_memory: bool = True,
     use_weighted_sampler: bool = False,
-    augment_train: bool = False
+    augment_train: bool = False,
 ) -> Dict[str, DataLoader]:
-    """
-    创建单源数据的DataLoader
-
-    Args:
-        data_dict: 包含训练/验证/测试数据的字典
-        batch_size: 批次大小
-        num_workers: 数据加载线程数
-        use_weighted_sampler: 是否使用加权采样（处理类不平衡）
-        augment_train: 是否对训练数据进行增强
-
-    Returns:
-        包含train/val/test DataLoader的字典
-    """
-    # 训练数据增强
+    """Create DataLoaders for single-source data."""
+    effective_pin_memory = pin_memory and torch.cuda.is_available()
     train_transform = TrainingTransform(noise_std=0.01) if augment_train else None
 
-    # 创建数据集
     train_dataset = NetworkAttackDataset(
-        data_dict['X_train'],
-        data_dict['y_train'],
-        transform=train_transform
+        data_dict["X_train"],
+        data_dict["y_train"],
+        transform=train_transform,
     )
-    val_dataset = NetworkAttackDataset(
-        data_dict['X_val'],
-        data_dict['y_val']
-    )
-    test_dataset = NetworkAttackDataset(
-        data_dict['X_test'],
-        data_dict['y_test']
-    )
+    val_dataset = NetworkAttackDataset(data_dict["X_val"], data_dict["y_val"])
+    test_dataset = NetworkAttackDataset(data_dict["X_test"], data_dict["y_test"])
 
-    # 加权采样器（处理类不平衡）
     train_sampler = None
     shuffle_train = True
     if use_weighted_sampler:
-        class_counts = np.bincount(data_dict['y_train'])
+        class_counts = np.bincount(data_dict["y_train"])
         weights = 1.0 / class_counts
-        sample_weights = weights[data_dict['y_train']]
+        sample_weights = weights[data_dict["y_train"]]
         train_sampler = WeightedRandomSampler(
             weights=sample_weights,
             num_samples=len(sample_weights),
-            replacement=True
+            replacement=True,
         )
         shuffle_train = False
 
-    # 创建DataLoader
     loaders = {
-        'train': DataLoader(
+        "train": DataLoader(
             train_dataset,
             batch_size=batch_size,
             shuffle=shuffle_train,
             sampler=train_sampler,
             num_workers=num_workers,
-            pin_memory=True,
-            drop_last=True
+            pin_memory=effective_pin_memory,
+            drop_last=True,
         ),
-        'val': DataLoader(
+        "val": DataLoader(
             val_dataset,
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=effective_pin_memory,
         ),
-        'test': DataLoader(
+        "test": DataLoader(
             test_dataset,
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=True
-        )
+            pin_memory=effective_pin_memory,
+        ),
     }
 
-    print(f"\nDataLoader 创建完成:")
-    print(f"  训练集: {len(train_dataset)} 样本, {len(loaders['train'])} 批次")
-    print(f"  验证集: {len(val_dataset)} 样本, {len(loaders['val'])} 批次")
-    print(f"  测试集: {len(test_dataset)} 样本, {len(loaders['test'])} 批次")
-
+    print("\nDataLoader created:")
+    print(f"  Train: {len(train_dataset)} samples, {len(loaders['train'])} batches")
+    print(f"  Val: {len(val_dataset)} samples, {len(loaders['val'])} batches")
+    print(f"  Test: {len(test_dataset)} samples, {len(loaders['test'])} batches")
     return loaders
 
 
@@ -272,121 +238,111 @@ def create_multi_source_loaders(
     data_dict: Dict[str, np.ndarray],
     batch_size: int = 64,
     num_workers: int = 4,
+    pin_memory: bool = True,
     use_weighted_sampler: bool = False,
-    augment_train: bool = False
+    augment_train: bool = False,
 ) -> Dict[str, DataLoader]:
-    """
-    创建多源数据的DataLoader
+    """Create DataLoaders for multi-source data without collapsing sources."""
+    effective_pin_memory = pin_memory and torch.cuda.is_available()
+    source_indices = sorted({
+        int(match.group(1))
+        for key in data_dict.keys()
+        for match in [re.match(r"^X(\d+)_train$", key)]
+        if match is not None
+    })
 
-    Args:
-        data_dict: 包含多源训练/验证/测试数据的字典
-        batch_size: 批次大小
-        num_workers: 数据加载线程数
-        use_weighted_sampler: 是否使用加权采样
-        augment_train: 是否对训练数据进行增强
+    if not source_indices:
+        raise ValueError("No multi-source tensors found in data_dict (expected keys like X1_train, X2_train)")
+    if len(source_indices) < 2:
+        raise ValueError("Multi-source training requires at least two sources")
 
-    Returns:
-        包含train/val/test DataLoader的字典
-    """
-    # 训练数据增强
+    for idx in source_indices:
+        for split in ("train", "val", "test"):
+            key = f"X{idx}_{split}"
+            if key not in data_dict:
+                raise KeyError(f"Missing data key: {key}")
+
     train_transform = TrainingTransform(noise_std=0.01) if augment_train else None
+    source_names = [f"source{idx}" for idx in source_indices]
 
-    # 创建数据集
     train_dataset = MultiSourceDataset(
-        data_dict['X1_train'],
-        data_dict['X2_train'],
-        data_dict['y_train'],
-        transform1=train_transform,
-        transform2=train_transform
+        *[data_dict[f"X{idx}_train"] for idx in source_indices],
+        labels=data_dict["y_train"],
+        source_names=source_names,
+        transforms=[train_transform] * len(source_indices),
     )
     val_dataset = MultiSourceDataset(
-        data_dict['X1_val'],
-        data_dict['X2_val'],
-        data_dict['y_val']
+        *[data_dict[f"X{idx}_val"] for idx in source_indices],
+        labels=data_dict["y_val"],
+        source_names=source_names,
     )
     test_dataset = MultiSourceDataset(
-        data_dict['X1_test'],
-        data_dict['X2_test'],
-        data_dict['y_test']
+        *[data_dict[f"X{idx}_test"] for idx in source_indices],
+        labels=data_dict["y_test"],
+        source_names=source_names,
     )
 
-    # 加权采样器
     train_sampler = None
     shuffle_train = True
     if use_weighted_sampler:
-        class_counts = np.bincount(data_dict['y_train'])
+        class_counts = np.bincount(data_dict["y_train"])
         weights = 1.0 / class_counts
-        sample_weights = weights[data_dict['y_train']]
+        sample_weights = weights[data_dict["y_train"]]
         train_sampler = WeightedRandomSampler(
             weights=sample_weights,
             num_samples=len(sample_weights),
-            replacement=True
+            replacement=True,
         )
         shuffle_train = False
 
-    # 创建DataLoader
     loaders = {
-        'train': DataLoader(
+        "train": DataLoader(
             train_dataset,
             batch_size=batch_size,
             shuffle=shuffle_train,
             sampler=train_sampler,
             num_workers=num_workers,
-            pin_memory=True,
-            drop_last=True
+            pin_memory=effective_pin_memory,
+            drop_last=True,
         ),
-        'val': DataLoader(
+        "val": DataLoader(
             val_dataset,
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=True
+            pin_memory=effective_pin_memory,
         ),
-        'test': DataLoader(
+        "test": DataLoader(
             test_dataset,
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=True
-        )
+            pin_memory=effective_pin_memory,
+        ),
     }
 
-    print(f"\n多源 DataLoader 创建完成:")
-    print(f"  训练集: {len(train_dataset)} 样本, {len(loaders['train'])} 批次")
-    print(f"  验证集: {len(val_dataset)} 样本, {len(loaders['val'])} 批次")
-    print(f"  测试集: {len(test_dataset)} 样本, {len(loaders['test'])} 批次")
-    print(f"  Source 1 维度: {train_dataset.source1_dim}")
-    print(f"  Source 2 维度: {train_dataset.source2_dim}")
-
+    print("\nMulti-source DataLoader created:")
+    print(f"  Train: {len(train_dataset)} samples, {len(loaders['train'])} batches")
+    print(f"  Val: {len(val_dataset)} samples, {len(loaders['val'])} batches")
+    print(f"  Test: {len(test_dataset)} samples, {len(loaders['test'])} batches")
+    for idx, source_dim in enumerate(train_dataset.source_dims, start=1):
+        print(f"  Source {idx} dim: {source_dim}")
     return loaders
 
 
-def get_class_weights(labels: np.ndarray) -> torch.Tensor:
-    """
-    计算类别权重（用于损失函数）
-
-    Args:
-        labels: 标签数组
-
-    Returns:
-        类别权重张量
-    """
-    class_counts = np.bincount(labels)
+def get_class_weights(labels: np.ndarray, num_classes: Optional[int] = None) -> torch.Tensor:
+    """Compute class weights for loss functions."""
+    labels = np.asarray(labels)
+    class_counts = np.bincount(labels, minlength=num_classes or 0)
     total = len(labels)
-    weights = total / (len(class_counts) * class_counts)
+    weights = np.zeros_like(class_counts, dtype=np.float32)
+    nonzero_mask = class_counts > 0
+    weights[nonzero_mask] = total / (len(class_counts) * class_counts[nonzero_mask])
     return torch.FloatTensor(weights)
 
 
 def compute_sample_weights(labels: np.ndarray) -> np.ndarray:
-    """
-    计算样本权重（用于加权采样）
-
-    Args:
-        labels: 标签数组
-
-    Returns:
-        样本权重数组
-    """
+    """Compute sample weights for weighted sampling."""
     class_counts = np.bincount(labels)
     weights = 1.0 / class_counts
     return weights[labels]

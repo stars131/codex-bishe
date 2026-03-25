@@ -3,6 +3,7 @@ Models module for network attack detection.
 """
 from src.models.fusion_net import (
     FusionNet,
+    DecisionLevelFusionNet,
     SingleSourceNet,
     EnsembleFusionNet,
     create_model,
@@ -37,6 +38,7 @@ from src.models.losses import (
 __all__ = [
     # 主要模型
     'FusionNet',
+    'DecisionLevelFusionNet',
     'SingleSourceNet',
     'EnsembleFusionNet',
     'create_model',

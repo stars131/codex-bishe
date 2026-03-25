@@ -310,8 +310,11 @@ class ClassBalancedLoss(nn.Module):
         self.gamma = gamma
 
         # 计算有效样本数和权重
-        effective_num = 1.0 - np.power(beta, samples_per_class)
-        weights = (1.0 - beta) / np.array(effective_num)
+        counts = np.asarray(samples_per_class, dtype=np.float64)
+        effective_num = np.where(counts > 0, 1.0 - np.power(beta, counts), np.inf)
+        weights = np.where(counts > 0, (1.0 - beta) / effective_num, 0.0)
+        if not np.any(weights > 0):
+            raise ValueError("samples_per_class must contain at least one positive count")
         weights = weights / np.sum(weights) * len(samples_per_class)
         self.weights = torch.tensor(weights, dtype=torch.float32)
 
@@ -534,6 +537,7 @@ def create_loss_function(
         return ClassBalancedLoss(
             samples_per_class=samples_per_class,
             beta=kwargs.get('beta', 0.9999),
+            loss_type=kwargs.get('class_balanced_loss_type', 'focal'),
             gamma=kwargs.get('gamma', 2.0)
         )
 

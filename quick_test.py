@@ -213,7 +213,8 @@ def train_model(epochs: int = 30, batch_size: int = 64):
     loaders = create_multi_source_loaders(
         data_dict,
         batch_size=batch_size,
-        num_workers=0  # Windows 兼容
+        num_workers=0,  # Windows 兼容
+        pin_memory=False
     )
 
     # 创建模型
